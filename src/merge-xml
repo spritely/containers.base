@@ -1,0 +1,180 @@
+#!/usr/bin/env python3
+"""merge-xml: Merge an XML overlay into a base file using comment directives.
+
+Directives (XML comments in the overlay file):
+  <!-- merge:xml -->        File-level, must appear in first 5 lines. Signals XML merge.
+  <!-- merge:key=ATTR -->   Inside a parent element. Children matched by tag + ATTR.
+  <!-- merge:delete -->     Before an element. Removes matching element from base.
+
+Usage: merge-xml BASE OVERLAY
+  Merges overlay into base, writes result to BASE, strips directives.
+"""
+
+import re
+import sys
+from xml.etree import ElementTree
+
+INDENT_PATTERN = re.compile(r"^([ \t]+)<", re.MULTILINE)
+DIRECTIVE_PATTERN = re.compile(r"^\s*merge:(xml|key=\S+|delete)\s*$")
+KEY_PATTERN = re.compile(r"^\s*merge:key=(\S+)\s*$")
+
+
+def is_comment(element):
+    """Check if an element is a comment (created by TreeBuilder with insert_comments)."""
+    return callable(element.tag) and element.tag.__name__ == "Comment"
+
+
+def is_directive(element):
+    """Check if a comment element is a merge directive."""
+    return is_comment(element) and DIRECTIVE_PATTERN.match(element.text or "")
+
+
+def get_key_directive(children):
+    """Extract merge:key=ATTR directive from children. Returns attr name or None."""
+    for child in children:
+        if is_comment(child) and (match := KEY_PATTERN.match(child.text or "")):
+            return match.group(1)
+    return None
+
+
+def find_matching_element(base_children, overlay_child, key_attribute):
+    """Find a matching base child for an overlay child.
+
+    Matches by tag + key_attribute value if key_attribute is set and overlay child has it.
+    Falls back to tag-only matching.
+    """
+    tag = overlay_child.tag
+    if key_attribute:
+        key_value = overlay_child.get(key_attribute)
+        if key_value is not None:
+            for child in base_children:
+                if not is_comment(child) and child.tag == tag and child.get(key_attribute) == key_value:
+                    return child
+            return None
+
+    for child in base_children:
+        if not is_comment(child) and child.tag == tag:
+            return child
+    return None
+
+
+def merge_element(base_element, overlay_element):
+    """Recursively merge overlay_element into base_element."""
+    # Update attributes: overlay wins, base-only preserved
+    base_element.attrib.update(overlay_element.attrib)
+
+    # Update text if overlay has non-empty text
+    overlay_text = (overlay_element.text or "").strip()
+    if overlay_text:
+        base_element.text = overlay_element.text
+
+    # Get directive info from overlay children
+    overlay_children = list(overlay_element)
+    key_attribute = get_key_directive(overlay_children)
+
+    # Process overlay children
+    base_children = list(base_element)
+    overlay_iterator = iter(overlay_children)
+
+    for child in overlay_iterator:
+        if is_directive(child):
+            if child.text and child.text.strip() == "merge:delete":
+                target = next(overlay_iterator, None)
+                if target is not None:
+                    match = find_matching_element(base_children, target, key_attribute)
+                    if match is not None:
+                        base_element.remove(match)
+            continue
+
+        if is_comment(child):
+            base_element.append(child)
+            continue
+
+        match = find_matching_element(base_children, child, key_attribute)
+        if match is not None:
+            merge_element(match, child)
+        else:
+            base_element.append(child)
+
+    # Update tail if overlay has non-empty tail
+    overlay_tail = (overlay_element.tail or "").strip()
+    if overlay_tail:
+        base_element.tail = overlay_element.tail
+
+
+def remove_directives(element):
+    """Remove all merge directive comments from the tree."""
+    for directive in [child for child in element if is_directive(child)]:
+        element.remove(directive)
+    for child in element:
+        remove_directives(child)
+
+
+def has_xml_declaration(path):
+    """Check if a file starts with an XML declaration."""
+    with open(path) as f:
+        return f.read(5) == "<?xml"
+
+
+def detect_indent(path):
+    """Detect the indentation unit used in an XML file.
+
+    Looks for the first line that starts with whitespace followed by '<'.
+    Returns the whitespace string, or '  ' (2 spaces) as default.
+    """
+    with open(path) as f:
+        match = INDENT_PATTERN.search(f.read())
+    return match.group(1) if match else "  "
+
+
+def register_namespaces(path):
+    """Register namespace prefixes from the file to preserve them in output."""
+    for _, (prefix, uri) in ElementTree.iterparse(path, events=["start-ns"]):
+        ElementTree.register_namespace(prefix, uri)
+
+
+def parse_with_comments(path):
+    """Parse XML preserving comments as elements."""
+    tree_builder = ElementTree.TreeBuilder(insert_comments=True)
+    parser = ElementTree.XMLParser(target=tree_builder)
+    tree = ElementTree.parse(path, parser=parser)
+    return tree
+
+
+def main():
+    if len(sys.argv) != 3:
+        print(f"Usage: {sys.argv[0]} BASE OVERLAY", file=sys.stderr)
+        sys.exit(1)
+
+    base_path = sys.argv[1]
+    overlay_path = sys.argv[2]
+
+    # Detect formatting before parsing (ElementTree discards this info).
+    xml_declaration = has_xml_declaration(overlay_path) or has_xml_declaration(base_path)
+    indent = detect_indent(base_path)
+
+    try:
+        # Register namespaces from base to preserve prefixes
+        register_namespaces(base_path)
+
+        # Parse both files (overlay with comments preserved)
+        base_tree = ElementTree.parse(base_path)
+        overlay_tree = parse_with_comments(overlay_path)
+    except ElementTree.ParseError as e:
+        print(f"Error: Failed to parse XML: {e}", file=sys.stderr)
+        print(f"  base: {base_path}", file=sys.stderr)
+        print(f"  overlay: {overlay_path}", file=sys.stderr)
+        sys.exit(1)
+
+    merge_element(base_tree.getroot(), overlay_tree.getroot())
+    remove_directives(base_tree.getroot())
+
+    ElementTree.indent(base_tree, space=indent)
+    base_tree.write(base_path, encoding="unicode", xml_declaration=xml_declaration)
+    # Ensure trailing newline
+    with open(base_path, "a") as f:
+        f.write("\n")
+
+
+if __name__ == "__main__":
+    main()

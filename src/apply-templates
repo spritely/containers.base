@@ -110,6 +110,13 @@ merge_files() {
 
         mkdir -p "$(dirname "$target_file")"
 
+        # Check for XML merge directive (comment-based, extension-independent)
+        if head -5 "$file" | grep -q '<!-- *merge:xml'; then
+            [[ -f "$target_file" ]] || cp "$file" "$target_file"
+            merge-xml "$target_file" "$file"
+            continue
+        fi
+
         if [[ -f "$target_file" ]]; then
             case "$rel" in
                 *.json)
@@ -210,14 +217,16 @@ apply_template_copier() {
 }
 
 for ((i=0; i<TEMPLATE_COUNT; i++)); do
-    name=$(echo "$MERGED_TEMPLATES" | yq ".[$i].name")
-    source=$(echo "$MERGED_TEMPLATES" | yq ".[$i].source")
-    type=$(echo "$MERGED_TEMPLATES" | yq ".[$i].type // \"git\"")
-    ref=$(echo "$MERGED_TEMPLATES" | yq ".[$i].ref // \"\"")
-    target=$(echo "$MERGED_TEMPLATES" | yq ".[$i].target // \".\"")
-    path=$(echo "$MERGED_TEMPLATES" | yq ".[$i].path // \"\"")
-    strategy=$(echo "$MERGED_TEMPLATES" | yq ".[$i].strategy // \"overwrite\"")
-    run=$(echo "$MERGED_TEMPLATES" | yq ".[$i].run // \"\"")
+    eval "$(echo "$MERGED_TEMPLATES" | yq -o=json ".[$i]" | jq -r '
+        "name=" + (.name // "" | @sh),
+        "source=" + (.source // "" | @sh),
+        "type=" + (.type // "git" | @sh),
+        "ref=" + (.ref // "" | @sh),
+        "target=" + (.target // "." | @sh),
+        "path=" + (.path // "" | @sh),
+        "strategy=" + (.strategy // "overwrite" | @sh),
+        "run=" + (.run // "" | @sh)
+    ')"
 
     if [[ "$name" == "null" || -z "$name" ]]; then
         echo "Error: Template at index $i is missing required 'name' field" >&2

@@ -1,0 +1,10 @@
+<!-- merge:xml -->
+<configuration>
+  <appSettings>
+    <!-- merge:key=key -->
+    <add key="ApiUrl" value="https://new-api.example.com" />
+    <add key="NewSetting" value="enabled" />
+    <!-- merge:delete -->
+    <add key="DeprecatedSetting" />
+  </appSettings>
+</configuration>
