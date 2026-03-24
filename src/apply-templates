@@ -84,11 +84,62 @@ if [[ "$TEMPLATE_COUNT" -eq 0 ]]; then
     exit 0
 fi
 
+merge_json() {
+    local base="$1"
+    local overlay="$2"
+    local tmp
+    tmp=$(mktemp)
+    jq -s '.[0] * .[1] | del(.. | nulls)' "$base" "$overlay" > "$tmp" && mv "$tmp" "$base" || rm -f "$tmp"
+}
+
+merge_yaml() {
+    local base="$1"
+    local overlay="$2"
+    local tmp
+    tmp=$(mktemp)
+    yq eval-all '. as $item ireduce ({}; . * $item)' "$base" "$overlay" | yq 'del(.. | select(. == null))' > "$tmp" && mv "$tmp" "$base" || rm -f "$tmp"
+}
+
+merge_files() {
+    local source_dir="$1"
+    local target_dir="$2"
+
+    while IFS= read -r -d '' file; do
+        local rel="${file#"$source_dir"/}"
+        local target_file="$target_dir/$rel"
+
+        mkdir -p "$(dirname "$target_file")"
+
+        # Check for XML merge directive (comment-based, extension-independent)
+        if head -5 "$file" | grep -q '<!-- *merge:xml'; then
+            [[ -f "$target_file" ]] || cp "$file" "$target_file"
+            merge-xml "$target_file" "$file"
+            continue
+        fi
+
+        if [[ -f "$target_file" ]]; then
+            case "$rel" in
+                *.json)
+                    merge_json "$target_file" "$file"
+                    continue
+                    ;;
+                *.yaml|*.yml)
+                    merge_yaml "$target_file" "$file"
+                    continue
+                    ;;
+            esac
+        fi
+
+        cp "$file" "$target_file"
+    done < <(find "$source_dir" -path '*/.git' -prune -o -type f -print0)
+}
+
 apply_template_git() {
     local source="$1"
     local ref="$2"
     local target="$3"
     local path="$4"
+    local strategy="${5:-overwrite}"
 
     local temp_dir
     temp_dir=$(mktemp -d)
@@ -110,7 +161,11 @@ apply_template_git() {
     fi
 
     mkdir -p "$target"
-    tar -cf - --exclude='.git' -C "$source_dir" . | tar -xf - -C "$target"
+    if [[ "$strategy" == "merge" ]]; then
+        merge_files "$source_dir" "$target"
+    else
+        tar -cf - --exclude='.git' -C "$source_dir" . | tar -xf - -C "$target"
+    fi
 }
 
 apply_template_copy() {
@@ -118,6 +173,7 @@ apply_template_copy() {
     local _ref="$2" # unused for copy type
     local target="$3"
     local path="$4"
+    local strategy="${5:-overwrite}"
 
     if [[ -n "$path" ]]; then
         source="$source/$path"
@@ -129,7 +185,11 @@ apply_template_copy() {
     fi
 
     mkdir -p "$target"
-    tar -cf - --exclude='.git' -C "$source" . | tar -xf - -C "$target"
+    if [[ "$strategy" == "merge" ]]; then
+        merge_files "$source" "$target"
+    else
+        tar -cf - --exclude='.git' -C "$source" . | tar -xf - -C "$target"
+    fi
 }
 
 apply_template_copier() {
@@ -157,12 +217,16 @@ apply_template_copier() {
 }
 
 for ((i=0; i<TEMPLATE_COUNT; i++)); do
-    name=$(echo "$MERGED_TEMPLATES" | yq ".[$i].name")
-    source=$(echo "$MERGED_TEMPLATES" | yq ".[$i].source")
-    type=$(echo "$MERGED_TEMPLATES" | yq ".[$i].type // \"git\"")
-    ref=$(echo "$MERGED_TEMPLATES" | yq ".[$i].ref // \"\"")
-    target=$(echo "$MERGED_TEMPLATES" | yq ".[$i].target // \".\"")
-    path=$(echo "$MERGED_TEMPLATES" | yq ".[$i].path // \"\"")
+    eval "$(echo "$MERGED_TEMPLATES" | yq -o=json ".[$i]" | jq -r '
+        "name=" + (.name // "" | @sh),
+        "source=" + (.source // "" | @sh),
+        "type=" + (.type // "git" | @sh),
+        "ref=" + (.ref // "" | @sh),
+        "target=" + (.target // "." | @sh),
+        "path=" + (.path // "" | @sh),
+        "strategy=" + (.strategy // "overwrite" | @sh),
+        "run=" + (.run // "" | @sh)
+    ')"
 
     if [[ "$name" == "null" || -z "$name" ]]; then
         echo "Error: Template at index $i is missing required 'name' field" >&2
@@ -173,23 +237,36 @@ for ((i=0; i<TEMPLATE_COUNT; i++)); do
         exit 1
     fi
 
+    if [[ "$strategy" != "overwrite" && "$strategy" != "merge" ]]; then
+        echo "Error: Unknown strategy '$strategy' for template '$name'. Must be 'overwrite' or 'merge'." >&2
+        exit 1
+    fi
+
     # Make target an absolute path if it's relative
     if [[ "$target" != /* ]]; then
         target="$(pwd)/$target"
     fi
 
-    echo "Applying $name ($type) from $source..."
+    if [[ "$strategy" != "overwrite" ]]; then
+        echo "Applying $name ($type, strategy: $strategy) from $source..."
+    else
+        echo "Applying $name ($type) from $source..."
+    fi
 
     if [[ -n "$path" && "$type" == "copier" ]]; then
         echo "Warning: 'path' is not supported for copier templates (use _subdirectory in copier.yaml instead). Ignoring for '$name'." >&2
     fi
 
+    if [[ "$strategy" != "overwrite" && "$type" == "copier" ]]; then
+        echo "Warning: 'strategy' is not supported for copier templates. Ignoring for '$name'." >&2
+    fi
+
     case "$type" in
         git)
-            apply_template_git "$source" "$ref" "$target" "$path"
+            apply_template_git "$source" "$ref" "$target" "$path" "$strategy"
             ;;
         copy)
-            apply_template_copy "$source" "$ref" "$target" "$path"
+            apply_template_copy "$source" "$ref" "$target" "$path" "$strategy"
             ;;
         copier)
             apply_template_copier "$name" "$source" "$ref" "$target"
@@ -199,6 +276,11 @@ for ((i=0; i<TEMPLATE_COUNT; i++)); do
             exit 1
             ;;
     esac
+
+    if [[ -n "$run" ]]; then
+        echo "  Running: $run"
+        (cd "$target" && bash -c "$run")
+    fi
 
     echo "  Done."
 done

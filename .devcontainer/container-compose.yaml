@@ -1,0 +1,12 @@
+services:
+  containers-base-dev:
+    container_name: containers-base-dev
+    build:
+      context: ../src
+      dockerfile: Containerfile
+    command: /bin/sh -c "sleep infinity"
+    volumes:
+      - ../:/src
+      - ${HOME:-$USERPROFILE}/.ssh:/root/.ssh:ro
+    env_file:
+      - .env

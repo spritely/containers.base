@@ -7,4 +7,4 @@ RUN /tmp/install-devtools.sh
 # Add uv to PATH
 ENV PATH="/root/.local/bin:${PATH}"
 
-COPY apply-templates /usr/local/bin/apply-templates
+COPY apply-templates merge-xml /usr/local/bin/

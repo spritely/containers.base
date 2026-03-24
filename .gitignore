@@ -1,2 +1,3 @@
-test-results/
+*.env
 .templates/config.local.yaml
+report.xml

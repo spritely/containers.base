@@ -1,0 +1,16 @@
+<!-- merge:xml -->
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <!-- merge:delete -->
+    <DebugType>full</DebugType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- merge:key=Include -->
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <PackageReference Include="NewPackage" Version="1.0.0" />
+    <!-- merge:delete -->
+    <PackageReference Include="OldPackage" />
+  </ItemGroup>
+</Project>

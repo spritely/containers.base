@@ -18,15 +18,23 @@ jobs:
         with:
           writeSummary: true
 
-      - name: Build and test
-        run: ./test.sh
+      - name: Create .env for build
+        shell: bash
+        run: touch ./.devcontainer/.env
+
+      - name: Run tests
+        uses: devcontainers/ci@8bf61b26e9c3a98f69cb6ce2f88d24ff59b785c6 # v0.3.1900000417
+        with:
+          runCmd: |
+            bats --report-formatter junit --output . ./tests/
+          push: never
 
       - name: Generate test report
         uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
         if: always()
         with:
           name: Test Results
-          path: test-results/report.xml
+          path: report.xml
           reporter: java-junit
 
       - name: Build and publish container
