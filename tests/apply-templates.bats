@@ -809,6 +809,141 @@ EOF
     [[ "$output" == *"Unknown strategy"* ]]
 }
 
+# ===== Run field tests =====
+
+@test "run: executes shell command after copy template" {
+    local source_dir="$TEST_DIR/run-copy-source"
+    mkdir -p "$source_dir"
+    echo "content" > "$source_dir/file.txt"
+
+    cat > "$CONFIG_DIR/config.yaml" <<EOF
+templates:
+  - name: run-copy
+    type: copy
+    source: $source_dir
+    target: $TARGET_DIR
+    run: echo "hello" > run-output.txt
+EOF
+
+    run apply-templates --config-dir "$CONFIG_DIR"
+    [ "$status" -eq 0 ]
+    assert_file_content "$TARGET_DIR/run-output.txt" "hello"
+}
+
+@test "run: executes script from template" {
+    local source_dir="$TEST_DIR/run-script-source"
+    cp -a "$FIXTURE_DIR/script-template" "$source_dir"
+
+    cat > "$CONFIG_DIR/config.yaml" <<EOF
+templates:
+  - name: run-script
+    type: copy
+    source: $source_dir
+    target: $TARGET_DIR
+    run: ./setup.sh
+EOF
+
+    run apply-templates --config-dir "$CONFIG_DIR"
+    echo "$output"
+    [ "$status" -eq 0 ]
+    assert_file_content "$TARGET_DIR/setup-output.txt" "setup done"
+}
+
+@test "run: executes command after git template" {
+    local repo_dir="$TEST_DIR/run-git-repo.git"
+    create_git_repo "$repo_dir" "$FIXTURE_DIR/basic-template"
+
+    cat > "$CONFIG_DIR/config.yaml" <<EOF
+templates:
+  - name: run-git
+    source: $repo_dir
+    target: $TARGET_DIR
+    run: echo "from git" > run-output.txt
+EOF
+
+    run apply-templates --config-dir "$CONFIG_DIR"
+    [ "$status" -eq 0 ]
+    assert_file_content "$TARGET_DIR/run-output.txt" "from git"
+}
+
+@test "run: command runs with target as working directory" {
+    local source_dir="$TEST_DIR/run-cwd-source"
+    mkdir -p "$source_dir"
+    echo "content" > "$source_dir/file.txt"
+
+    cat > "$CONFIG_DIR/config.yaml" <<EOF
+templates:
+  - name: run-cwd
+    type: copy
+    source: $source_dir
+    target: $TARGET_DIR
+    run: pwd > wd.txt
+EOF
+
+    run apply-templates --config-dir "$CONFIG_DIR"
+    [ "$status" -eq 0 ]
+    assert_file_content "$TARGET_DIR/wd.txt" "$TARGET_DIR"
+}
+
+@test "run: command failure causes apply-templates to fail" {
+    local source_dir="$TEST_DIR/run-fail-source"
+    mkdir -p "$source_dir"
+    echo "content" > "$source_dir/file.txt"
+
+    cat > "$CONFIG_DIR/config.yaml" <<EOF
+templates:
+  - name: run-fail
+    type: copy
+    source: $source_dir
+    target: $TARGET_DIR
+    run: exit 1
+EOF
+
+    run apply-templates --config-dir "$CONFIG_DIR"
+    [ "$status" -ne 0 ]
+}
+
+@test "run: executes command after copier template" {
+    local template_dir="$TEST_DIR/run-copier-tmpl"
+    create_copier_template "$template_dir" v1.0.0
+
+    cat > "$CONFIG_DIR/config.yaml" <<EOF
+templates:
+  - name: run-copier
+    type: copier
+    source: $template_dir
+    ref: v1.0.0
+    target: $TARGET_DIR
+    run: echo "from copier" > run-output.txt
+EOF
+
+    run apply-templates --config-dir "$CONFIG_DIR"
+    echo "$output"
+    [ "$status" -eq 0 ]
+    [ -f "$TARGET_DIR/README.md" ]
+    assert_file_content "$TARGET_DIR/run-output.txt" "from copier"
+}
+
+@test "run: supports command chaining" {
+    local source_dir="$TEST_DIR/run-chain-source"
+    mkdir -p "$source_dir"
+    echo "content" > "$source_dir/file.txt"
+
+    cat > "$CONFIG_DIR/config.yaml" <<EOF
+templates:
+  - name: run-chain
+    type: copy
+    source: $source_dir
+    target: $TARGET_DIR
+    run: echo "a" > a.txt && echo "b" > b.txt
+EOF
+
+    run apply-templates --config-dir "$CONFIG_DIR"
+    [ "$status" -eq 0 ]
+    assert_file_content "$TARGET_DIR/a.txt" "a"
+    assert_file_content "$TARGET_DIR/b.txt" "b"
+}
+
 @test "merge: works with nested directories" {
     local source_dir="$TEST_DIR/merge-nested-source"
     cp -a "$FIXTURE_DIR/merge-template" "$source_dir"

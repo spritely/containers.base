@@ -217,6 +217,7 @@ for ((i=0; i<TEMPLATE_COUNT; i++)); do
     target=$(echo "$MERGED_TEMPLATES" | yq ".[$i].target // \".\"")
     path=$(echo "$MERGED_TEMPLATES" | yq ".[$i].path // \"\"")
     strategy=$(echo "$MERGED_TEMPLATES" | yq ".[$i].strategy // \"overwrite\"")
+    run=$(echo "$MERGED_TEMPLATES" | yq ".[$i].run // \"\"")
 
     if [[ "$name" == "null" || -z "$name" ]]; then
         echo "Error: Template at index $i is missing required 'name' field" >&2
@@ -266,6 +267,11 @@ for ((i=0; i<TEMPLATE_COUNT; i++)); do
             exit 1
             ;;
     esac
+
+    if [[ -n "$run" ]]; then
+        echo "  Running: $run"
+        (cd "$target" && bash -c "$run")
+    fi
 
     echo "  Done."
 done
