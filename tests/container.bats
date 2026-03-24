@@ -1,5 +1,15 @@
 #!/usr/bin/env bats
 
+setup() {
+    INSTALL_SCRIPT="/src/src/install-devtools.sh"
+    extract_version() {
+        grep -m1 "^${1}=" "$INSTALL_SCRIPT" | sed 's/.*:-\(.*\)}.*/\1/'
+    }
+    EXPECTED_COPIER_VERSION=$(extract_version COPIER_VERSION)
+    EXPECTED_YQ_VERSION=$(extract_version YQ_VERSION)
+    EXPECTED_CODEX_VERSION=$(extract_version CODEX_VERSION)
+}
+
 # Version checks for tools with pinned versions in Containerfile
 
 @test "copier version matches Containerfile" {

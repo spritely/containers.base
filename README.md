@@ -8,13 +8,13 @@ Published container is available from: https://hub.docker.com/repository/docker/
 
 ### Automated tests
 
-`test.sh` builds the Docker image and runs [bats](https://github.com/bats-core/bats-core) tests inside it. Bats is already installed in the image, so no local test tooling is needed — just Docker.
+Open the repo in the devcontainer (VS Code > "Reopen in Container" or `devcontainer up --workspace-folder .`), then run:
 
 ```bash
-./test.sh
+bats ./tests/
 ```
 
-The script extracts expected versions from Dockerfile ARGs and verifies that all installed tools match. It also checks developer tools are present and environment configuration is correct.
+Tests verify that all installed tools match their pinned versions and that developer tools are present and environment configuration is correct.
 
 ## Renovate schedule
 

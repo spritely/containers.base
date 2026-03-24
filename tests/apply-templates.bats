@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 
-FIXTURE_DIR="/tests/fixtures"
+FIXTURE_DIR="$(dirname "${BATS_TEST_FILENAME}")/fixtures"
 
 setup() {
     TEST_DIR=$(mktemp -d)
