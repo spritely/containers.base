@@ -2,9 +2,11 @@ name: Renovate
 
 on:
   workflow_dispatch:
-  # Daily at midnight Eastern Time (5 AM UTC = midnight EST / 1 AM EDT)
+  # Tier 0 (root dependency): two runs 10 minutes apart.
+  # Run 1 creates PRs, CI validates, Run 2 automerges.
   schedule:
     - cron: '0 5 * * *'
+    - cron: '10 5 * * *'
 
 jobs:
   renovate:
