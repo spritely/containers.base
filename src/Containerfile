@@ -1,0 +1,12 @@
+# Python tags: https://hub.docker.com/_/python
+# renovate: datasource=docker depName=python
+ARG PYTHON_VERSION=3.14
+FROM python:${PYTHON_VERSION}-slim
+
+COPY install-devtools.sh /tmp/
+RUN /tmp/install-devtools.sh
+
+# Add uv to PATH
+ENV PATH="/root/.local/bin:${PATH}"
+
+COPY apply-templates /usr/local/bin/apply-templates

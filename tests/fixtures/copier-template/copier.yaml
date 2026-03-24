@@ -1,0 +1,4 @@
+_subdirectory: template
+project_name:
+  type: str
+  default: "my-project"

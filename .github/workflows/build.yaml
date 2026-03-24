@@ -1,0 +1,48 @@
+name: Build and Publish Container
+
+on: [push, workflow_dispatch]
+
+permissions:
+    checks: write # Required for test reporting
+    contents: write # Required for pushing tags
+
+jobs:
+  build:
+    # Available runners: https://github.com/actions/runner-images
+    runs-on: ubuntu-24.04
+
+    steps:
+      - id: version
+        name: Get semantic version
+        uses: spritely/actions.semantic-version/get@9030147256b1893f621a45535878d4050b9ad168 # v0.5.7
+        with:
+          writeSummary: true
+
+      - name: Build and test
+        run: ./test.sh
+
+      - name: Generate test report
+        uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
+        if: always()
+        with:
+          name: Test Results
+          path: test-results/report.xml
+          reporter: java-junit
+
+      - name: Build and publish container
+        uses: spritely/actions.publish-container@1b0ac0e1e43063bd9b9068af9c4e5f81c37d58a6 # v0.1.22
+        with:
+          registryUsername: ${{ secrets.DOCKER_HUB_USERNAME }}
+          registryPassword: ${{ secrets.DOCKER_HUB_TOKEN }}
+          registryHost: docker.io
+          context: ./src
+          dockerfile: ./src/Containerfile
+          imageNames: spritelydev/base-devcontainer
+          version: ${{ steps.version.outputs.version }}
+          writeSummary: true
+
+      - name: Apply semantic version
+        if: ${{ steps.version.outputs.branchName == github.event.repository.default_branch }}
+        uses: spritely/actions.semantic-version/apply@9030147256b1893f621a45535878d4050b9ad168 # v0.5.7
+        with:
+          version: ${{ steps.version.outputs.version }}

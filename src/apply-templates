@@ -1,0 +1,161 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# apply-templates: Apply multiple templates to a project from a YAML config.
+
+CONFIG_DIR=".templates"
+
+usage() {
+    echo "Usage: apply-templates [--config-dir PATH]"
+    echo ""
+    echo "Apply templates defined in CONFIG_DIR/config.yaml to the current project."
+    echo ""
+    echo "Options:"
+    echo "  --config-dir PATH  Config directory (default: .templates)"
+    echo "  --help             Show this help message"
+    exit 0
+}
+
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --config-dir)
+            CONFIG_DIR="$2"
+            shift 2
+            ;;
+        --help)
+            usage
+            ;;
+        *)
+            echo "Error: Unknown argument '$1'" >&2
+            echo "Run 'apply-templates --help' for usage." >&2
+            exit 1
+            ;;
+    esac
+done
+
+CONFIG_FILE="$CONFIG_DIR/config.yaml"
+CONFIG_LOCAL_FILE="$CONFIG_DIR/config.local.yaml"
+
+if [[ ! -f "$CONFIG_FILE" ]]; then
+    echo "Error: Config file not found: $CONFIG_FILE" >&2
+    echo "Create a config.yaml in your $CONFIG_DIR directory." >&2
+    exit 1
+fi
+
+# Merge templates arrays from config.yaml and config.local.yaml (if it exists)
+if [[ -f "$CONFIG_LOCAL_FILE" ]]; then
+    MERGED_TEMPLATES=$(yq eval-all '
+        [select(fi == 0).templates[], select(fi == 1).templates[]]
+    ' "$CONFIG_FILE" "$CONFIG_LOCAL_FILE")
+else
+    MERGED_TEMPLATES=$(yq '.templates' "$CONFIG_FILE")
+fi
+
+TEMPLATE_COUNT=$(echo "$MERGED_TEMPLATES" | yq 'length')
+
+if [[ "$TEMPLATE_COUNT" -eq 0 ]]; then
+    echo "No templates found in config."
+    exit 0
+fi
+
+apply_template_git() {
+    local source="$1"
+    local ref="$2"
+    local target="$3"
+
+    local temp_dir
+    temp_dir=$(mktemp -d)
+    trap "rm -rf '$temp_dir'" RETURN
+
+    if [[ -n "$ref" ]]; then
+        git clone --branch "$ref" --depth 1 "$source" "$temp_dir/repo" 2>&1
+    else
+        git clone --depth 1 "$source" "$temp_dir/repo" 2>&1
+    fi
+
+    mkdir -p "$target"
+    tar -cf - --exclude='.git' -C "$temp_dir/repo" . | tar -xf - -C "$target"
+}
+
+apply_template_copy() {
+    local source="$1"
+    local _ref="$2" # unused for copy type
+    local target="$3"
+
+    if [[ ! -e "$source" ]]; then
+        echo "Error: Source path does not exist: $source" >&2
+        return 1
+    fi
+
+    mkdir -p "$target"
+    tar -cf - --exclude='.git' -C "$source" . | tar -xf - -C "$target"
+}
+
+apply_template_copier() {
+    local name="$1"
+    local source="$2"
+    local ref="$3"
+    local target="$4"
+
+    # Answers file is stored in the target directory with a per-template name.
+    # This allows multiple copier templates to target the same directory.
+    # The path must be relative to the target (copier requirement).
+    local answers_file=".copier-answers.${name}.yml"
+
+    local ref_args=()
+    if [[ -n "$ref" ]]; then
+        ref_args=(--vcs-ref "$ref")
+    fi
+
+    mkdir -p "$target"
+    if [[ -f "$target/$answers_file" ]]; then
+        copier update --defaults -a "$answers_file" "${ref_args[@]}" "$target"
+    else
+        copier copy --force -a "$answers_file" "${ref_args[@]}" "$source" "$target"
+    fi
+}
+
+for ((i=0; i<TEMPLATE_COUNT; i++)); do
+    name=$(echo "$MERGED_TEMPLATES" | yq ".[$i].name")
+    source=$(echo "$MERGED_TEMPLATES" | yq ".[$i].source")
+    type=$(echo "$MERGED_TEMPLATES" | yq ".[$i].type // \"git\"")
+    ref=$(echo "$MERGED_TEMPLATES" | yq ".[$i].ref // \"\"")
+    target=$(echo "$MERGED_TEMPLATES" | yq ".[$i].target // \".\"")
+
+    if [[ "$name" == "null" || -z "$name" ]]; then
+        echo "Error: Template at index $i is missing required 'name' field" >&2
+        exit 1
+    fi
+    if [[ "$source" == "null" || -z "$source" ]]; then
+        echo "Error: Template '$name' is missing required 'source' field" >&2
+        exit 1
+    fi
+
+    # Make target an absolute path if it's relative
+    if [[ "$target" != /* ]]; then
+        target="$(pwd)/$target"
+    fi
+
+    echo "Applying $name ($type) from $source..."
+
+    case "$type" in
+        git)
+            apply_template_git "$source" "$ref" "$target"
+            ;;
+        copy)
+            apply_template_copy "$source" "$ref" "$target"
+            ;;
+        copier)
+            apply_template_copier "$name" "$source" "$ref" "$target"
+            ;;
+        *)
+            echo "Error: Unknown template type '$type' for template '$name'" >&2
+            exit 1
+            ;;
+    esac
+
+    echo "  Done."
+done
+
+echo "All templates applied successfully."
