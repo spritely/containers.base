@@ -4,6 +4,7 @@
   "description": "Automated dependency updates with automerge",
   "automerge": true,
   "platformAutomerge": false,
+  "prHourlyLimit": 0,
   "rebaseWhen": "behind-base-branch",
   "packageRules": [
     {
