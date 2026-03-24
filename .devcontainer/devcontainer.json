@@ -19,6 +19,7 @@
                 "davidanson.vscode-markdownlint",
                 "editorconfig.editorconfig",
                 "mhutchie.git-graph",
+                "ms-python.python",
                 "openai.chatgpt",
                 "streetsidesoftware.code-spell-checker",
                 "yzhang.markdown-all-in-one"

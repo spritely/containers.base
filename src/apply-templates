@@ -89,7 +89,7 @@ merge_json() {
     local overlay="$2"
     local tmp
     tmp=$(mktemp)
-    jq -s '.[0] * .[1] | del(.. | nulls)' "$base" "$overlay" > "$tmp" && mv "$tmp" "$base"
+    jq -s '.[0] * .[1] | del(.. | nulls)' "$base" "$overlay" > "$tmp" && mv "$tmp" "$base" || rm -f "$tmp"
 }
 
 merge_yaml() {
@@ -97,7 +97,7 @@ merge_yaml() {
     local overlay="$2"
     local tmp
     tmp=$(mktemp)
-    yq eval-all '. as $item ireduce ({}; . * $item)' "$base" "$overlay" | yq 'del(.. | select(. == null))' > "$tmp" && mv "$tmp" "$base"
+    yq eval-all '. as $item ireduce ({}; . * $item)' "$base" "$overlay" | yq 'del(.. | select(. == null))' > "$tmp" && mv "$tmp" "$base" || rm -f "$tmp"
 }
 
 merge_files() {

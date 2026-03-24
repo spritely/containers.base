@@ -2,7 +2,7 @@
 """merge-xml: Merge an XML overlay into a base file using comment directives.
 
 Directives (XML comments in the overlay file):
-  <!-- merge:xml -->        File-level, must appear in first 5 lines. Signals XML merge.
+  <!-- merge:xml -->        File-level, required in first 5 lines. Signals XML merge.
   <!-- merge:key=ATTR -->   Inside a parent element. Children matched by tag + ATTR.
   <!-- merge:delete -->     Before an element. Removes matching element from base.
 
@@ -110,6 +110,18 @@ def remove_directives(element):
         remove_directives(child)
 
 
+def has_merge_directive(path):
+    """Check that the overlay has a merge:xml directive in the first 5 lines."""
+    with open(path) as f:
+        for _ in range(5):
+            line = f.readline()
+            if not line:
+                break
+            if "merge:xml" in line:
+                return True
+    return False
+
+
 def has_xml_declaration(path):
     """Check if a file starts with an XML declaration."""
     with open(path) as f:
@@ -149,13 +161,18 @@ def main():
     base_path = sys.argv[1]
     overlay_path = sys.argv[2]
 
+    if not has_merge_directive(overlay_path):
+        print(f"Error: overlay missing '<!-- merge:xml -->' directive in first 5 lines: {overlay_path}", file=sys.stderr)
+        sys.exit(1)
+
     # Detect formatting before parsing (ElementTree discards this info).
     xml_declaration = has_xml_declaration(overlay_path) or has_xml_declaration(base_path)
     indent = detect_indent(base_path)
 
     try:
-        # Register namespaces from base to preserve prefixes
+        # Register namespaces from both files to preserve prefixes
         register_namespaces(base_path)
+        register_namespaces(overlay_path)
 
         # Parse both files (overlay with comments preserved)
         base_tree = ElementTree.parse(base_path)
