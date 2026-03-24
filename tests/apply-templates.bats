@@ -577,3 +577,262 @@ EOF
     [ "$status" -ne 0 ]
     [ ! -f "$TARGET_DIR/valid.txt" ]
 }
+
+# ===== Strategy tests =====
+
+@test "merge: deep merges JSON files" {
+    local source_dir="$TEST_DIR/merge-source"
+    cp -a "$FIXTURE_DIR/merge-template" "$source_dir"
+
+    # Create base JSON file in target
+    mkdir -p "$TARGET_DIR"
+    echo '{"name":"base","version":"1.0","base_only":"preserved","extra":{"existing":true}}' > "$TARGET_DIR/config.json"
+
+    cat > "$CONFIG_DIR/config.yaml" <<EOF
+templates:
+  - name: merge-json
+    type: copy
+    source: $source_dir
+    target: $TARGET_DIR
+    strategy: merge
+EOF
+
+    run apply-templates --config-dir "$CONFIG_DIR"
+    echo "$output"
+    [ "$status" -eq 0 ]
+
+    # Overlay wins conflicts
+    [[ "$(jq -r '.name' "$TARGET_DIR/config.json")" == "overlay" ]]
+    [[ "$(jq -r '.version' "$TARGET_DIR/config.json")" == "2.0" ]]
+    # Base-only keys preserved
+    [[ "$(jq -r '.base_only' "$TARGET_DIR/config.json")" == "preserved" ]]
+    # New nested keys added
+    [[ "$(jq -r '.extra.added' "$TARGET_DIR/config.json")" == "true" ]]
+    # Existing nested keys preserved
+    [[ "$(jq -r '.extra.existing' "$TARGET_DIR/config.json")" == "true" ]]
+}
+
+@test "merge: deletes JSON keys set to null" {
+    local source_dir="$TEST_DIR/merge-null-source"
+    cp -a "$FIXTURE_DIR/merge-template" "$source_dir"
+
+    mkdir -p "$TARGET_DIR"
+    echo '{"name":"base","debug":true}' > "$TARGET_DIR/config.json"
+
+    cat > "$CONFIG_DIR/config.yaml" <<EOF
+templates:
+  - name: merge-null
+    type: copy
+    source: $source_dir
+    target: $TARGET_DIR
+    strategy: merge
+EOF
+
+    run apply-templates --config-dir "$CONFIG_DIR"
+    echo "$output"
+    [ "$status" -eq 0 ]
+
+    # debug was set to null in overlay, should be removed
+    [[ "$(jq 'has("debug")' "$TARGET_DIR/config.json")" == "false" ]]
+}
+
+@test "merge: deep merges YAML files" {
+    local source_dir="$TEST_DIR/merge-yaml-source"
+    cp -a "$FIXTURE_DIR/merge-template" "$source_dir"
+
+    mkdir -p "$TARGET_DIR"
+    cat > "$TARGET_DIR/settings.yaml" <<'YAMLEOF'
+name: base
+version: "1.0"
+base_only: preserved
+extra:
+  existing: true
+YAMLEOF
+
+    cat > "$CONFIG_DIR/config.yaml" <<EOF
+templates:
+  - name: merge-yaml
+    type: copy
+    source: $source_dir
+    target: $TARGET_DIR
+    strategy: merge
+EOF
+
+    run apply-templates --config-dir "$CONFIG_DIR"
+    echo "$output"
+    [ "$status" -eq 0 ]
+
+    # Overlay wins conflicts
+    [[ "$(yq '.name' "$TARGET_DIR/settings.yaml")" == "overlay" ]]
+    [[ "$(yq '.version' "$TARGET_DIR/settings.yaml")" == "2.0" ]]
+    # Base-only keys preserved
+    [[ "$(yq '.base_only' "$TARGET_DIR/settings.yaml")" == "preserved" ]]
+    # New nested keys added
+    [[ "$(yq '.extra.added' "$TARGET_DIR/settings.yaml")" == "true" ]]
+    # Existing nested keys preserved
+    [[ "$(yq '.extra.existing' "$TARGET_DIR/settings.yaml")" == "true" ]]
+}
+
+@test "merge: deletes YAML keys set to null" {
+    local source_dir="$TEST_DIR/merge-yaml-null-source"
+    cp -a "$FIXTURE_DIR/merge-template" "$source_dir"
+
+    mkdir -p "$TARGET_DIR"
+    cat > "$TARGET_DIR/settings.yaml" <<'YAMLEOF'
+name: base
+debug: true
+YAMLEOF
+
+    cat > "$CONFIG_DIR/config.yaml" <<EOF
+templates:
+  - name: merge-yaml-null
+    type: copy
+    source: $source_dir
+    target: $TARGET_DIR
+    strategy: merge
+EOF
+
+    run apply-templates --config-dir "$CONFIG_DIR"
+    echo "$output"
+    [ "$status" -eq 0 ]
+
+    # debug was set to null in overlay, should be removed
+    [[ "$(yq 'has("debug")' "$TARGET_DIR/settings.yaml")" == "false" ]]
+}
+
+@test "merge: overwrites non-JSON/YAML files" {
+    local source_dir="$TEST_DIR/merge-plain-source"
+    cp -a "$FIXTURE_DIR/merge-template" "$source_dir"
+
+    mkdir -p "$TARGET_DIR"
+    echo "original content" > "$TARGET_DIR/plain.txt"
+
+    cat > "$CONFIG_DIR/config.yaml" <<EOF
+templates:
+  - name: merge-plain
+    type: copy
+    source: $source_dir
+    target: $TARGET_DIR
+    strategy: merge
+EOF
+
+    run apply-templates --config-dir "$CONFIG_DIR"
+    echo "$output"
+    [ "$status" -eq 0 ]
+
+    assert_file_content "$TARGET_DIR/plain.txt" "overlay content"
+}
+
+@test "merge: copies new files not in target" {
+    local source_dir="$TEST_DIR/merge-new-source"
+    cp -a "$FIXTURE_DIR/merge-template" "$source_dir"
+
+    mkdir -p "$TARGET_DIR"
+    # Don't create new-file.json in target — it should be copied
+
+    cat > "$CONFIG_DIR/config.yaml" <<EOF
+templates:
+  - name: merge-new
+    type: copy
+    source: $source_dir
+    target: $TARGET_DIR
+    strategy: merge
+EOF
+
+    run apply-templates --config-dir "$CONFIG_DIR"
+    echo "$output"
+    [ "$status" -eq 0 ]
+
+    [[ "$(jq -r '.brand' "$TARGET_DIR/new-file.json")" == "new" ]]
+}
+
+@test "merge: works with git type" {
+    local repo_dir="$TEST_DIR/merge-repo.git"
+    create_git_repo "$repo_dir" "$FIXTURE_DIR/merge-template"
+
+    mkdir -p "$TARGET_DIR"
+    echo '{"name":"base","version":"1.0","base_only":"preserved"}' > "$TARGET_DIR/config.json"
+
+    cat > "$CONFIG_DIR/config.yaml" <<EOF
+templates:
+  - name: merge-git
+    type: git
+    source: $repo_dir
+    target: $TARGET_DIR
+    strategy: merge
+EOF
+
+    run apply-templates --config-dir "$CONFIG_DIR"
+    echo "$output"
+    [ "$status" -eq 0 ]
+
+    [[ "$(jq -r '.name' "$TARGET_DIR/config.json")" == "overlay" ]]
+    [[ "$(jq -r '.base_only' "$TARGET_DIR/config.json")" == "preserved" ]]
+}
+
+@test "merge: default strategy is overwrite" {
+    local source_dir="$TEST_DIR/default-strategy-source"
+    cp -a "$FIXTURE_DIR/merge-template" "$source_dir"
+
+    mkdir -p "$TARGET_DIR"
+    echo '{"name":"base","base_only":"should_be_lost"}' > "$TARGET_DIR/config.json"
+
+    cat > "$CONFIG_DIR/config.yaml" <<EOF
+templates:
+  - name: default-strategy
+    type: copy
+    source: $source_dir
+    target: $TARGET_DIR
+EOF
+
+    run apply-templates --config-dir "$CONFIG_DIR"
+    echo "$output"
+    [ "$status" -eq 0 ]
+
+    # Without strategy: merge, the file is overwritten entirely
+    [[ "$(jq -r '.name' "$TARGET_DIR/config.json")" == "overlay" ]]
+    [[ "$(jq 'has("base_only")' "$TARGET_DIR/config.json")" == "false" ]]
+}
+
+@test "merge: unknown strategy value errors" {
+    cat > "$CONFIG_DIR/config.yaml" <<EOF
+templates:
+  - name: bad-strategy
+    type: copy
+    source: /some/path
+    target: $TARGET_DIR
+    strategy: replace
+EOF
+
+    run apply-templates --config-dir "$CONFIG_DIR"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"Unknown strategy"* ]]
+}
+
+@test "merge: works with nested directories" {
+    local source_dir="$TEST_DIR/merge-nested-source"
+    cp -a "$FIXTURE_DIR/merge-template" "$source_dir"
+
+    mkdir -p "$TARGET_DIR/subdir"
+    echo '{"nested_key":"base_value","base_only":"kept","remove_me":"should_go"}' > "$TARGET_DIR/subdir/nested.json"
+
+    cat > "$CONFIG_DIR/config.yaml" <<EOF
+templates:
+  - name: merge-nested
+    type: copy
+    source: $source_dir
+    target: $TARGET_DIR
+    strategy: merge
+EOF
+
+    run apply-templates --config-dir "$CONFIG_DIR"
+    echo "$output"
+    [ "$status" -eq 0 ]
+
+    # Overlay wins
+    [[ "$(jq -r '.nested_key' "$TARGET_DIR/subdir/nested.json")" == "overlay_value" ]]
+    # Base-only keys preserved
+    [[ "$(jq -r '.base_only' "$TARGET_DIR/subdir/nested.json")" == "kept" ]]
+    # Null means delete
+    [[ "$(jq 'has("remove_me")' "$TARGET_DIR/subdir/nested.json")" == "false" ]]
+}
