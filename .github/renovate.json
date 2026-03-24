@@ -17,7 +17,7 @@
       "customType": "regex",
       "description": "Update versions in shell scripts with renovate comments",
       "managerFilePatterns": [
-        "/(^|/)\\.sh$/"
+        "/\\.sh$/"
       ],
       "matchStrings": [
         "# renovate: datasource=(?<datasource>[a-z-]+?) depName=(?<depName>[^\\s]+?)(?: extractVersion=(?<extractVersion>[^\\s]+?))?(?: versioning=(?<versioning>[^\\s]+?))?\\s+[A-Z_]+?=\"\\$\\{[A-Z_]+?:-(?<currentValue>.+?)\\}\""
