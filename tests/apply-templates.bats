@@ -206,6 +206,104 @@ EOF
     assert_file_content "$TARGET_DIR/hello.txt" "hello world"
 }
 
+# ===== Path field tests =====
+
+@test "path: git type copies only files from subdirectory" {
+    local repo_dir="$TEST_DIR/subdir-repo.git"
+    create_git_repo "$repo_dir" "$FIXTURE_DIR/subdir-template"
+
+    cat > "$CONFIG_DIR/config.yaml" <<EOF
+templates:
+  - name: subdir-template
+    source: $repo_dir
+    path: src
+    target: $TARGET_DIR
+EOF
+
+    run apply-templates --config-dir "$CONFIG_DIR"
+    [ "$status" -eq 0 ]
+    assert_file_content "$TARGET_DIR/hello.txt" "hello from subdir"
+    assert_file_content "$TARGET_DIR/subdir/nested.txt" "nested in subdir"
+    [ ! -f "$TARGET_DIR/README.md" ]
+    [ ! -d "$TARGET_DIR/.github" ]
+}
+
+@test "path: copy type copies only files from subdirectory" {
+    local source_dir="$TEST_DIR/copy-subdir-source"
+    cp -a "$FIXTURE_DIR/subdir-template" "$source_dir"
+
+    cat > "$CONFIG_DIR/config.yaml" <<EOF
+templates:
+  - name: subdir-copy
+    type: copy
+    source: $source_dir
+    path: src
+    target: $TARGET_DIR
+EOF
+
+    run apply-templates --config-dir "$CONFIG_DIR"
+    [ "$status" -eq 0 ]
+    assert_file_content "$TARGET_DIR/hello.txt" "hello from subdir"
+    assert_file_content "$TARGET_DIR/subdir/nested.txt" "nested in subdir"
+    [ ! -f "$TARGET_DIR/README.md" ]
+    [ ! -d "$TARGET_DIR/.github" ]
+}
+
+@test "path: git type errors on nonexistent path" {
+    local repo_dir="$TEST_DIR/bad-path-repo.git"
+    create_git_repo "$repo_dir" "$FIXTURE_DIR/basic-template"
+
+    cat > "$CONFIG_DIR/config.yaml" <<EOF
+templates:
+  - name: bad-path
+    source: $repo_dir
+    path: nonexistent
+    target: $TARGET_DIR
+EOF
+
+    run apply-templates --config-dir "$CONFIG_DIR"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"Path 'nonexistent' does not exist"* ]]
+}
+
+@test "path: copy type errors on nonexistent path" {
+    local source_dir="$TEST_DIR/copy-bad-path"
+    cp -a "$FIXTURE_DIR/basic-template" "$source_dir"
+
+    cat > "$CONFIG_DIR/config.yaml" <<EOF
+templates:
+  - name: bad-copy-path
+    type: copy
+    source: $source_dir
+    path: nonexistent
+    target: $TARGET_DIR
+EOF
+
+    run apply-templates --config-dir "$CONFIG_DIR"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"Source path does not exist"* ]]
+}
+
+@test "path: copier type warns and ignores path" {
+    local template_dir="$TEST_DIR/copier-path-tmpl"
+    create_copier_template "$template_dir" v1.0.0
+
+    cat > "$CONFIG_DIR/config.yaml" <<EOF
+templates:
+  - name: copier-with-path
+    type: copier
+    source: $template_dir
+    path: should-be-ignored
+    ref: v1.0.0
+    target: $TARGET_DIR
+EOF
+
+    run apply-templates --config-dir "$CONFIG_DIR"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"not supported for copier"* ]]
+    [ -f "$TARGET_DIR/README.md" ]
+}
+
 # ===== Copy type tests =====
 
 @test "copy: copies files and excludes .git" {

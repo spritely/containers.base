@@ -88,6 +88,7 @@ apply_template_git() {
     local source="$1"
     local ref="$2"
     local target="$3"
+    local path="$4"
 
     local temp_dir
     temp_dir=$(mktemp -d)
@@ -99,14 +100,28 @@ apply_template_git() {
         git clone --depth 1 "$source" "$temp_dir/repo" 2>&1
     fi
 
+    local source_dir="$temp_dir/repo"
+    if [[ -n "$path" ]]; then
+        source_dir="$source_dir/$path"
+        if [[ ! -d "$source_dir" ]]; then
+            echo "Error: Path '$path' does not exist in repository '$source'" >&2
+            return 1
+        fi
+    fi
+
     mkdir -p "$target"
-    tar -cf - --exclude='.git' -C "$temp_dir/repo" . | tar -xf - -C "$target"
+    tar -cf - --exclude='.git' -C "$source_dir" . | tar -xf - -C "$target"
 }
 
 apply_template_copy() {
     local source="$1"
     local _ref="$2" # unused for copy type
     local target="$3"
+    local path="$4"
+
+    if [[ -n "$path" ]]; then
+        source="$source/$path"
+    fi
 
     if [[ ! -e "$source" ]]; then
         echo "Error: Source path does not exist: $source" >&2
@@ -147,6 +162,7 @@ for ((i=0; i<TEMPLATE_COUNT; i++)); do
     type=$(echo "$MERGED_TEMPLATES" | yq ".[$i].type // \"git\"")
     ref=$(echo "$MERGED_TEMPLATES" | yq ".[$i].ref // \"\"")
     target=$(echo "$MERGED_TEMPLATES" | yq ".[$i].target // \".\"")
+    path=$(echo "$MERGED_TEMPLATES" | yq ".[$i].path // \"\"")
 
     if [[ "$name" == "null" || -z "$name" ]]; then
         echo "Error: Template at index $i is missing required 'name' field" >&2
@@ -164,12 +180,16 @@ for ((i=0; i<TEMPLATE_COUNT; i++)); do
 
     echo "Applying $name ($type) from $source..."
 
+    if [[ -n "$path" && "$type" == "copier" ]]; then
+        echo "Warning: 'path' is not supported for copier templates (use _subdirectory in copier.yaml instead). Ignoring for '$name'." >&2
+    fi
+
     case "$type" in
         git)
-            apply_template_git "$source" "$ref" "$target"
+            apply_template_git "$source" "$ref" "$target" "$path"
             ;;
         copy)
-            apply_template_copy "$source" "$ref" "$target"
+            apply_template_copy "$source" "$ref" "$target" "$path"
             ;;
         copier)
             apply_template_copier "$name" "$source" "$ref" "$target"
