@@ -9,11 +9,15 @@ setup() {
     mkdir -p "$CONFIG_DIR"
     cd "$TEST_DIR"
 
-    # Use env vars instead of git config --global to avoid mutating global state
+    # Use env vars instead of git config to avoid mutating global state
     export GIT_AUTHOR_NAME="Test"
     export GIT_AUTHOR_EMAIL="test@test.com"
     export GIT_COMMITTER_NAME="Test"
     export GIT_COMMITTER_EMAIL="test@test.com"
+    # Prevent "dubious ownership" errors in CI containers
+    export GIT_CONFIG_COUNT=1
+    export GIT_CONFIG_KEY_0=safe.directory
+    export GIT_CONFIG_VALUE_0='*'
 }
 
 teardown() {
@@ -99,6 +103,16 @@ assert_file_content() {
     run apply-templates --config-dir "$TEST_DIR/nonexistent"
     [ "$status" -ne 0 ]
     [[ "$output" == *"Config file not found"* ]]
+}
+
+@test "validation: errors when both config.yaml and config.yml exist" {
+    echo "templates: []" > "$CONFIG_DIR/config.yaml"
+    echo "templates: []" > "$CONFIG_DIR/config.yml"
+
+    run apply-templates --config-dir "$CONFIG_DIR"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"Both"* ]]
+    [[ "$output" == *"Use one or the other"* ]]
 }
 
 @test "validation: missing name field errors" {
@@ -282,6 +296,84 @@ EOF
     run apply-templates --config-dir "$CONFIG_DIR"
     echo "Second run: $output"
     [ "$status" -eq 0 ]
+}
+
+# ===== File extension tests =====
+
+@test "extension: config.yml is accepted" {
+    local source_dir="$TEST_DIR/yml-source"
+    mkdir -p "$source_dir"
+    echo "yml content" > "$source_dir/file.txt"
+
+    cat > "$CONFIG_DIR/config.yml" <<EOF
+templates:
+  - name: yml-template
+    type: copy
+    source: $source_dir
+    target: $TARGET_DIR
+EOF
+
+    run apply-templates --config-dir "$CONFIG_DIR"
+    [ "$status" -eq 0 ]
+    assert_file_content "$TARGET_DIR/file.txt" "yml content"
+}
+
+@test "extension: config.local.yml is accepted" {
+    local source1="$TEST_DIR/yml-shared"
+    local source2="$TEST_DIR/yml-local"
+    mkdir -p "$source1" "$source2"
+    echo "shared" > "$source1/shared.txt"
+    echo "local" > "$source2/local.txt"
+
+    cat > "$CONFIG_DIR/config.yaml" <<EOF
+templates:
+  - name: shared-template
+    type: copy
+    source: $source1
+    target: $TARGET_DIR
+EOF
+
+    cat > "$CONFIG_DIR/config.local.yml" <<EOF
+templates:
+  - name: local-template
+    type: copy
+    source: $source2
+    target: $TARGET_DIR
+EOF
+
+    run apply-templates --config-dir "$CONFIG_DIR"
+    [ "$status" -eq 0 ]
+    assert_file_content "$TARGET_DIR/shared.txt" "shared"
+    assert_file_content "$TARGET_DIR/local.txt" "local"
+}
+
+@test "extension: mixed extensions (config.yml + config.local.yaml)" {
+    local source1="$TEST_DIR/mixed-main"
+    local source2="$TEST_DIR/mixed-local"
+    mkdir -p "$source1" "$source2"
+    echo "main" > "$source1/main.txt"
+    echo "local" > "$source2/local.txt"
+
+    cat > "$CONFIG_DIR/config.yml" <<EOF
+templates:
+  - name: main-template
+    type: copy
+    source: $source1
+    target: $TARGET_DIR
+EOF
+
+    cat > "$CONFIG_DIR/config.local.yaml" <<EOF
+templates:
+  - name: local-template
+    type: copy
+    source: $source2
+    target: $TARGET_DIR
+EOF
+
+    run apply-templates --config-dir "$CONFIG_DIR"
+    [ "$status" -eq 0 ]
+    assert_file_content "$TARGET_DIR/main.txt" "main"
+    assert_file_content "$TARGET_DIR/local.txt" "local"
 }
 
 # ===== Config tests =====

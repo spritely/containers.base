@@ -8,12 +8,35 @@ CONFIG_DIR=".templates"
 usage() {
     echo "Usage: apply-templates [--config-dir PATH]"
     echo ""
-    echo "Apply templates defined in CONFIG_DIR/config.yaml to the current project."
+    echo "Apply templates defined in CONFIG_DIR/config.{yaml,yml} to the current project."
     echo ""
     echo "Options:"
     echo "  --config-dir PATH  Config directory (default: .templates)"
     echo "  --help             Show this help message"
     exit 0
+}
+
+# Find a config file with .yaml or .yml extension.
+# Usage: find_config_file BASE_NAME  (e.g. "config" or "config.local")
+# Sets REPLY to the found path, or empty string if not found.
+# Errors if both extensions exist.
+find_config_file() {
+    local base="$CONFIG_DIR/$1"
+    local yaml_file="$base.yaml"
+    local yml_file="$base.yml"
+
+    if [[ -f "$yaml_file" && -f "$yml_file" ]]; then
+        echo "Error: Both $yaml_file and $yml_file exist. Use one or the other." >&2
+        exit 1
+    fi
+
+    if [[ -f "$yaml_file" ]]; then
+        REPLY="$yaml_file"
+    elif [[ -f "$yml_file" ]]; then
+        REPLY="$yml_file"
+    else
+        REPLY=""
+    fi
 }
 
 # Parse arguments
@@ -34,17 +57,19 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-CONFIG_FILE="$CONFIG_DIR/config.yaml"
-CONFIG_LOCAL_FILE="$CONFIG_DIR/config.local.yaml"
+find_config_file "config"
+CONFIG_FILE="$REPLY"
 
-if [[ ! -f "$CONFIG_FILE" ]]; then
-    echo "Error: Config file not found: $CONFIG_FILE" >&2
-    echo "Create a config.yaml in your $CONFIG_DIR directory." >&2
+if [[ -z "$CONFIG_FILE" ]]; then
+    echo "Error: Config file not found in $CONFIG_DIR (expected config.yaml or config.yml)" >&2
     exit 1
 fi
 
-# Merge templates arrays from config.yaml and config.local.yaml (if it exists)
-if [[ -f "$CONFIG_LOCAL_FILE" ]]; then
+find_config_file "config.local"
+CONFIG_LOCAL_FILE="$REPLY"
+
+# Merge templates arrays from config and config.local (if it exists)
+if [[ -n "$CONFIG_LOCAL_FILE" ]]; then
     MERGED_TEMPLATES=$(yq eval-all '
         [select(fi == 0).templates[], select(fi == 1).templates[]]
     ' "$CONFIG_FILE" "$CONFIG_LOCAL_FILE")
