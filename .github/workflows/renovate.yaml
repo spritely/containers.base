@@ -2,7 +2,7 @@ name: Renovate
 
 on:
   workflow_dispatch:
-  # Daily at 12:00AM EST (4:00AM UTC), with a second run at 12:10AM EST (4:10AM UTC)
+  # Daily at 12:00AM EST (5:00AM UTC), with a second run at 12:10AM EST (5:10AM UTC)
   # Tier 0 (root dependency): two runs 10 minutes apart.
   # Run 1 creates PRs, CI validates, Run 2 auto-merges.
   schedule:
