@@ -121,6 +121,24 @@ print(el.get(sys.argv[3], '') if el is not None else '')
     }
 }
 
+# Assert an XML element's attribute does NOT match a given value.
+# Usage: assert_xml_attr_not_exists FILE XPATH ATTR UNEXPECTED
+assert_xml_attr_not_exists() {
+    local file="$1" xpath="$2" attr="$3" unexpected="$4"
+    [[ -f "$file" ]] || { echo "File not found: $file"; return 1; }
+    local actual
+    actual=$(python3 -c "
+import sys, xml.etree.ElementTree as ET
+el = ET.parse(sys.argv[1]).find(sys.argv[2])
+print(el.get(sys.argv[3], '') if el is not None else '')
+" "$file" "$xpath" "$attr")
+    [[ -n "$actual" && "$actual" != "$unexpected" ]] || {
+        echo "XML attr '$attr' at $xpath in $file should not be '$unexpected'"
+        [[ -z "$actual" ]] && echo "  (element or attribute not found)"
+        return 1
+    }
+}
+
 # Assert an XML element exists.
 # Usage: assert_xml_exists FILE XPATH
 assert_xml_exists() {
@@ -1112,7 +1130,7 @@ EOF
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Newtonsoft.Json" Version="12.0.0" />
-    <PackageReference Include="OldPackage" Version="2.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Caching.Memory" Version="2.0.0" />
   </ItemGroup>
 </Project>
 XMLEOF
@@ -1130,14 +1148,14 @@ EOF
     echo "$output"
     [ "$status" -eq 0 ]
 
-    # merge:key — Newtonsoft.Json version updated via key match
-    assert_xml_attr "$TARGET_DIR/project.csproj" ".//PackageReference[@Include='Newtonsoft.Json']" "Version" "13.0.3"
-    # merge:key — NewPackage added (not in base)
-    assert_xml_exists "$TARGET_DIR/project.csproj" ".//PackageReference[@Include='NewPackage']"
+    # merge:key — Newtonsoft.Json version updated via key match (not the base "12.0.0")
+    assert_xml_attr_not_exists "$TARGET_DIR/project.csproj" ".//PackageReference[@Include='Newtonsoft.Json']" "Version" "12.0.0"
+    # merge:key — Microsoft.Extensions.Logging added (not in base)
+    assert_xml_exists "$TARGET_DIR/project.csproj" ".//PackageReference[@Include='Microsoft.Extensions.Logging']"
     # merge:delete — DebugType removed
     assert_xml_not_exists "$TARGET_DIR/project.csproj" ".//DebugType"
-    # merge:delete — OldPackage removed
-    assert_xml_not_exists "$TARGET_DIR/project.csproj" ".//PackageReference[@Include='OldPackage']"
+    # merge:delete — Microsoft.Extensions.Caching.Memory removed
+    assert_xml_not_exists "$TARGET_DIR/project.csproj" ".//PackageReference[@Include='Microsoft.Extensions.Caching.Memory']"
     # Directives stripped from output
     ! grep -q 'merge:xml' "$TARGET_DIR/project.csproj"
     ! grep -q 'merge:key' "$TARGET_DIR/project.csproj"
@@ -1207,7 +1225,7 @@ EOF
     # merge:delete elements are deletion markers, not real content — they
     # should not appear in the output even when there was no base file
     assert_xml_not_exists "$TARGET_DIR/project.csproj" ".//DebugType"
-    assert_xml_not_exists "$TARGET_DIR/project.csproj" ".//PackageReference[@Include='OldPackage']"
+    assert_xml_not_exists "$TARGET_DIR/project.csproj" ".//PackageReference[@Include='Microsoft.Extensions.Caching.Memory']"
 }
 
 @test "merge-xml: works with git type" {
