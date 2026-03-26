@@ -8,7 +8,7 @@
 
   <ItemGroup>
     <!-- merge:key=Include -->
-    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
     <PackageReference Include="Microsoft.Extensions.Logging" Version="9.0.14" />
     <!-- merge:delete -->
     <PackageReference Include="Microsoft.Extensions.Caching.Memory" />
