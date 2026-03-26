@@ -23,14 +23,14 @@ Renovate runs on a tiered schedule to support cascading dependency updates acros
 This repo is **tier 0** (root dependency):
 
 | Time (UTC) | What happens |
-|---|---|
+| ---------- | ------------ |
 | 5:00 | Run 1: Create PRs |
 | 5:10 | Run 2: Automerge after CI passes |
 
 Downstream repos should offset their schedules by another 10+ minutes to ensure this repo has completed its automerge.
 
 | Tier | Run 1 | Run 2 | Example repos |
-|---|---|---|---|
+| ---- | ----- | ----- | ------------- |
 | 0 | 5:00 | 5:10 | containers.base |
 | 1 | 5:20 | 5:30 | (repos that depend on containers.base) |
 | 2 | 5:40 | 5:50 | (repos that depend on tier 1) |
