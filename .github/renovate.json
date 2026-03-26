@@ -8,9 +8,10 @@
   "rebaseWhen": "behind-base-branch",
   "packageRules": [
     {
-      "description": "Do not automerge spritely/actions.semantic-version (circular dependency: it uses our devcontainer image)",
-      "matchPackageNames": ["spritely/actions.semantic-version"],
-      "automerge": false
+      "description": "Do not automerge spritely/actions.semantic-version or spritely/actions.publish-container (circular dependency: they use our devcontainer image)",
+      "matchPackageNames": ["spritely/actions.semantic-version", "spritely/actions.publish-container"],
+      "automerge": false,
+      "groupName": "spritely actions"
     }
   ],
   "customManagers": [
