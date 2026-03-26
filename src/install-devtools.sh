@@ -7,7 +7,7 @@ set -euo pipefail
 
 # yq releases: https://github.com/mikefarah/yq/releases
 # renovate: datasource=github-releases depName=mikefarah/yq extractVersion=^v(?<version>.*)$
-YQ_VERSION="${YQ_VERSION:-4.52.4}"
+YQ_VERSION="${YQ_VERSION:-4.52.5}"
 
 # copier releases: https://pypi.org/project/copier/
 # renovate: datasource=pypi depName=copier
