@@ -65,6 +65,11 @@ setup() {
     [ "$status" -eq 0 ]
 }
 
+@test "gh is installed" {
+    run gh --version
+    [ "$status" -eq 0 ]
+}
+
 @test "bat is installed and symlinked from batcat" {
     run bat --version
     [ "$status" -eq 0 ]

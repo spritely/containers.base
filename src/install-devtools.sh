@@ -22,7 +22,7 @@ CODEX_VERSION="${CODEX_VERSION:-0.116.0}"
 apt-get update && apt-get install -y \
     libssl3 zlib1g libbz2-1.0 libreadline8 libsqlite3-0 \
     libncursesw6 libffi8 liblzma5 tk \
-    curl wget bat bats git jq openssh-client tree zsh
+    curl wget bat bats gh git jq openssh-client tree zsh
 
 # Make bat (installed as batcat) available as bat
 # See: https://github.com/sharkdp/bat
