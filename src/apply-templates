@@ -70,14 +70,42 @@ CONFIG_LOCAL_FILE="$REPLY"
 
 # Merge templates arrays from config and config.local (if it exists)
 if [[ -n "$CONFIG_LOCAL_FILE" ]]; then
-    MERGED_TEMPLATES=$(yq eval-all '
+    RAW_TEMPLATES=$(yq eval-all -o=json '
         [select(fi == 0).templates[], select(fi == 1).templates[]]
     ' "$CONFIG_FILE" "$CONFIG_LOCAL_FILE")
 else
-    MERGED_TEMPLATES=$(yq '.templates' "$CONFIG_FILE")
+    RAW_TEMPLATES=$(yq -o=json '.templates' "$CONFIG_FILE")
 fi
 
-TEMPLATE_COUNT=$(echo "$MERGED_TEMPLATES" | yq 'length')
+# Recursively expand any { include: <file> } entries in the templates array.
+# Included files must exist and must have a top-level 'templates' array.
+expand_includes() {
+    local json="$1"
+    local result="[]"
+    local count=$(echo "$json" | jq 'length')
+    local j
+    for ((j=0; j<count; j++)); do
+        local entry=$(echo "$json" | jq ".[$j]")
+        local include=$(echo "$entry" | jq -r '.include // ""')
+        if [[ -n "$include" ]]; then
+            local include_path="$CONFIG_DIR/$include"
+            if [[ ! -f "$include_path" ]]; then
+                echo "Error: Included config file not found: $include_path" >&2
+                exit 1
+            fi
+            local included_json=$(yq -o=json '.templates // []' "$include_path")
+            included_json=$(expand_includes "$included_json")
+            result=$(jq -n --argjson a "$result" --argjson b "$included_json" '$a + $b')
+        else
+            result=$(jq -n --argjson a "$result" --argjson e "$entry" '$a + [$e]')
+        fi
+    done
+    echo "$result"
+}
+
+MERGED_TEMPLATES=$(expand_includes "$RAW_TEMPLATES")
+
+TEMPLATE_COUNT=$(echo "$MERGED_TEMPLATES" | jq 'length')
 
 if [[ "$TEMPLATE_COUNT" -eq 0 ]]; then
     echo "No templates found in config."
@@ -197,36 +225,79 @@ apply_template_copier() {
     local source="$2"
     local ref="$3"
     local target="$4"
+    local path="$5"
 
     # Answers file is stored in the target directory with a per-template name.
     # This allows multiple copier templates to target the same directory.
     # The path must be relative to the target (copier requirement).
-    local answers_file=".copier-answers.${name}.yml"
-
-    local ref_args=()
-    if [[ -n "$ref" ]]; then
-        ref_args=(--vcs-ref "$ref")
+    local answers_file
+    local config_dir_abs=$(realpath -m "$CONFIG_DIR")
+    local target_abs=$(realpath -m "$target")
+    if [[ "$config_dir_abs/" == "$target_abs/"* ]]; then
+        answers_file="${config_dir_abs#"$target_abs/"}/.copier-answers.${name}.yaml"
+    else
+        answers_file=".copier-answers.${name}.yaml"
     fi
+    local answers_abs="$target_abs/$answers_file"
+    local copier_temp_dir=""
 
     mkdir -p "$target"
-    if [[ -f "$target/$answers_file" ]]; then
-        copier update --defaults -a "$answers_file" "${ref_args[@]}" "$target"
+    mkdir -p "$config_dir_abs"
+
+    trap '[[ -n "$copier_temp_dir" ]] && rm -rf "$copier_temp_dir"' RETURN
+
+    if [[ -n "$path" ]]; then
+        # copier has no --subdir flag, so clone and point copier at the local subdir.
+        # We always re-copy (not update) since copier update cannot change _src_path.
+        copier_temp_dir=$(mktemp -d)
+
+        if [[ -n "$ref" ]]; then
+            git clone --branch "$ref" --depth 1 "$source" "$copier_temp_dir/repo" 2>&1
+        else
+            git clone --depth 1 "$source" "$copier_temp_dir/repo" 2>&1
+        fi
+
+        local template_source="$copier_temp_dir/repo/$path"
+        if [[ ! -d "$template_source" ]]; then
+            echo "Error: Path '$path' does not exist in repository '$source'" >&2
+            return 1
+        fi
+
+        if [[ -f "$answers_abs" ]]; then
+            copier copy --defaults --overwrite --trust -a "$answers_file" "$template_source" "$target"
+        else
+            copier copy --overwrite --trust -a "$answers_file" "$template_source" "$target"
+        fi
+
+        # Patch _src_path to the original URL so the answers file doesn't point at the temp dir.
+        if [[ -f "$answers_abs" ]]; then
+            yq -i "._src_path = \"$source\"" "$answers_abs"
+        else
+            echo "Warning: copier did not create an answers file for '$name'." >&2
+        fi
     else
-        copier copy --force -a "$answers_file" "${ref_args[@]}" "$source" "$target"
+        local ref_args=()
+        [[ -n "$ref" ]] && ref_args=(--vcs-ref "$ref")
+
+        if [[ -f "$answers_abs" ]]; then
+            copier update --defaults --trust -a "$answers_file" "${ref_args[@]}" "$target"
+        else
+            copier copy --overwrite --trust -a "$answers_file" "${ref_args[@]}" "$source" "$target"
+        fi
     fi
 }
 
 for ((i=0; i<TEMPLATE_COUNT; i++)); do
-    eval "$(echo "$MERGED_TEMPLATES" | yq -o=json ".[$i]" | jq -r '
-        "name=" + (.name // "" | @sh),
-        "source=" + (.source // "" | @sh),
-        "type=" + (.type // "git" | @sh),
-        "ref=" + (.ref // "" | @sh),
-        "target=" + (.target // "." | @sh),
-        "path=" + (.path // "" | @sh),
-        "strategy=" + (.strategy // "overwrite" | @sh),
-        "run=" + (.run // "" | @sh)
-    ')"
+    eval "$(echo "$MERGED_TEMPLATES" | jq -r ".[$i] | \
+        \"name=\" + (.name // \"\" | @sh),
+        \"source=\" + (.source // \"\" | @sh),
+        \"type=\" + (.type // \"git\" | @sh),
+        \"ref=\" + (.ref // \"\" | @sh),
+        \"target=\" + (.target // \".\" | @sh),
+        \"path=\" + (.path // \"\" | @sh),
+        \"strategy=\" + (.strategy // \"overwrite\" | @sh),
+        \"run=\" + (.run // \"\" | @sh)
+    ")"
 
     if [[ "$name" == "null" || -z "$name" ]]; then
         echo "Error: Template at index $i is missing required 'name' field" >&2
@@ -253,10 +324,6 @@ for ((i=0; i<TEMPLATE_COUNT; i++)); do
         echo "Applying $name ($type) from $source..."
     fi
 
-    if [[ -n "$path" && "$type" == "copier" ]]; then
-        echo "Warning: 'path' is not supported for copier templates (use _subdirectory in copier.yaml instead). Ignoring for '$name'." >&2
-    fi
-
     if [[ "$strategy" != "overwrite" && "$type" == "copier" ]]; then
         echo "Warning: 'strategy' is not supported for copier templates. Ignoring for '$name'." >&2
     fi
@@ -269,7 +336,7 @@ for ((i=0; i<TEMPLATE_COUNT; i++)); do
             apply_template_copy "$source" "$ref" "$target" "$path" "$strategy"
             ;;
         copier)
-            apply_template_copier "$name" "$source" "$ref" "$target"
+            apply_template_copier "$name" "$source" "$ref" "$target" "$path"
             ;;
         *)
             echo "Error: Unknown template type '$type' for template '$name'" >&2

@@ -384,24 +384,49 @@ EOF
     [ -f "$TARGET_DIR/README.md" ]
 }
 
-@test "path: copier type warns and ignores path" {
-    local template_dir="$TEST_DIR/copier-path-tmpl"
-    create_copier_template "$template_dir" v1.0.0
+@test "path: copier type uses subdirectory of repository" {
+    local repo_dir="$TEST_DIR/copier-path-repo"
+    mkdir -p "$repo_dir/subtemplate"
+    cp -a "$FIXTURE_DIR/copier-template/." "$repo_dir/subtemplate/"
+    git -C "$repo_dir" init 2>/dev/null
+    git -C "$repo_dir" add -A
+    git -C "$repo_dir" commit -m "init" 2>/dev/null
+    git -C "$repo_dir" tag v1.0.0
 
     cat > "$CONFIG_DIR/config.yaml" <<EOF
 templates:
-  - name: copier-with-path
+  - name: copier-subdir
     type: copier
-    source: $template_dir
-    path: should-be-ignored
+    source: $repo_dir
+    path: subtemplate
     ref: v1.0.0
     target: $TARGET_DIR
 EOF
 
     run apply-templates --config-dir "$CONFIG_DIR"
+    echo "$output"
     [ "$status" -eq 0 ]
-    [[ "$output" == *"not supported for copier"* ]]
     [ -f "$TARGET_DIR/README.md" ]
+    [ -f "$TARGET_DIR/.copier-answers.copier-subdir.yaml" ]
+}
+
+@test "path: copier type errors on nonexistent path" {
+    local template_dir="$TEST_DIR/copier-badpath-tmpl"
+    create_copier_template "$template_dir" v1.0.0
+
+    cat > "$CONFIG_DIR/config.yaml" <<EOF
+templates:
+  - name: copier-bad-path
+    type: copier
+    source: $template_dir
+    path: nonexistent
+    ref: v1.0.0
+    target: $TARGET_DIR
+EOF
+
+    run apply-templates --config-dir "$CONFIG_DIR"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"does not exist in repository"* ]]
 }
 
 # ===== Copy type tests =====
@@ -460,7 +485,7 @@ EOF
     echo "$output"
     [ "$status" -eq 0 ]
     [ -f "$TARGET_DIR/README.md" ]
-    [ -f "$TARGET_DIR/.copier-answers.copier-test.yml" ]
+    [ -f "$TARGET_DIR/.copier-answers.copier-test.yaml" ]
 }
 
 @test "copier: subsequent run uses copier update" {
@@ -484,7 +509,7 @@ EOF
     run apply-templates --config-dir "$CONFIG_DIR"
     echo "First run: $output"
     [ "$status" -eq 0 ]
-    [ -f "$TARGET_DIR/.copier-answers.copier-update.yml" ]
+    [ -f "$TARGET_DIR/.copier-answers.copier-update.yaml" ]
 
     # Commit so copier update can diff
     git -C "$TARGET_DIR" add -A
@@ -631,6 +656,141 @@ EOF
     run apply-templates --config-dir "$CONFIG_DIR"
     [ "$status" -eq 0 ]
     assert_file_content "$subdir/file.txt" "targeted"
+}
+
+# ===== Include tests =====
+
+@test "include: expands templates from referenced file" {
+    local source1="$TEST_DIR/include-source1"
+    local source2="$TEST_DIR/include-source2"
+    mkdir -p "$source1" "$source2"
+    echo "from-main" > "$source1/main.txt"
+    echo "from-included" > "$source2/included.txt"
+
+    cat > "$CONFIG_DIR/extra.yaml" <<EOF
+templates:
+  - name: included-template
+    type: copy
+    source: $source2
+    target: $TARGET_DIR
+EOF
+
+    cat > "$CONFIG_DIR/config.yaml" <<EOF
+templates:
+  - name: main-template
+    type: copy
+    source: $source1
+    target: $TARGET_DIR
+  - include: extra.yaml
+EOF
+
+    run apply-templates --config-dir "$CONFIG_DIR"
+    [ "$status" -eq 0 ]
+    assert_file_content "$TARGET_DIR/main.txt" "from-main"
+    assert_file_content "$TARGET_DIR/included.txt" "from-included"
+}
+
+@test "include: errors on missing include file" {
+    cat > "$CONFIG_DIR/config.yaml" <<EOF
+templates:
+  - include: nonexistent.yaml
+EOF
+
+    run apply-templates --config-dir "$CONFIG_DIR"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"Included config file not found"* ]]
+}
+
+@test "include: empty templates array in included file" {
+    local source1="$TEST_DIR/include-empty-source"
+    mkdir -p "$source1"
+    echo "main" > "$source1/main.txt"
+
+    cat > "$CONFIG_DIR/empty.yaml" <<EOF
+templates: []
+EOF
+
+    cat > "$CONFIG_DIR/config.yaml" <<EOF
+templates:
+  - name: main-template
+    type: copy
+    source: $source1
+    target: $TARGET_DIR
+  - include: empty.yaml
+EOF
+
+    run apply-templates --config-dir "$CONFIG_DIR"
+    [ "$status" -eq 0 ]
+    assert_file_content "$TARGET_DIR/main.txt" "main"
+}
+
+@test "include: recursive includes" {
+    local source1="$TEST_DIR/recursive-source1"
+    local source2="$TEST_DIR/recursive-source2"
+    mkdir -p "$source1" "$source2"
+    echo "level1" > "$source1/level1.txt"
+    echo "level2" > "$source2/level2.txt"
+
+    cat > "$CONFIG_DIR/deep.yaml" <<EOF
+templates:
+  - name: deep-template
+    type: copy
+    source: $source2
+    target: $TARGET_DIR
+EOF
+
+    cat > "$CONFIG_DIR/middle.yaml" <<EOF
+templates:
+  - name: middle-template
+    type: copy
+    source: $source1
+    target: $TARGET_DIR
+  - include: deep.yaml
+EOF
+
+    cat > "$CONFIG_DIR/config.yaml" <<EOF
+templates:
+  - include: middle.yaml
+EOF
+
+    run apply-templates --config-dir "$CONFIG_DIR"
+    [ "$status" -eq 0 ]
+    assert_file_content "$TARGET_DIR/level1.txt" "level1"
+    assert_file_content "$TARGET_DIR/level2.txt" "level2"
+}
+
+@test "include: config.local can reference includes" {
+    local source1="$TEST_DIR/local-include-source1"
+    local source2="$TEST_DIR/local-include-source2"
+    mkdir -p "$source1" "$source2"
+    echo "shared" > "$source1/shared.txt"
+    echo "local-extra" > "$source2/local-extra.txt"
+
+    cat > "$CONFIG_DIR/local-extra.yaml" <<EOF
+templates:
+  - name: local-extra-template
+    type: copy
+    source: $source2
+    target: $TARGET_DIR
+EOF
+
+    cat > "$CONFIG_DIR/config.yaml" <<EOF
+templates:
+  - name: shared-template
+    type: copy
+    source: $source1
+    target: $TARGET_DIR
+EOF
+
+    cat > "$CONFIG_DIR/config.local.yaml" <<EOF
+templates:
+  - include: local-extra.yaml
+EOF
+
+    run apply-templates --config-dir "$CONFIG_DIR"
+    [ "$status" -eq 0 ]
+    assert_file_content "$TARGET_DIR/shared.txt" "shared"
+    assert_file_content "$TARGET_DIR/local-extra.txt" "local-extra"
 }
 
 # ===== Integration tests =====
