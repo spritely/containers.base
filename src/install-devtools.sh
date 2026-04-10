@@ -11,7 +11,7 @@ YQ_VERSION="${YQ_VERSION:-4.52.5}"
 
 # copier releases: https://pypi.org/project/copier/
 # renovate: datasource=pypi depName=copier
-COPIER_VERSION="${COPIER_VERSION:-9.14.1}"
+COPIER_VERSION="${COPIER_VERSION:-9.14.2}"
 
 # Codex releases: https://github.com/openai/codex/releases
 # renovate: datasource=github-releases depName=openai/codex extractVersion=^rust-v(?<version>.*)$
