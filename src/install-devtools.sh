@@ -15,7 +15,7 @@ COPIER_VERSION="${COPIER_VERSION:-9.14.3}"
 
 # Codex releases: https://github.com/openai/codex/releases
 # renovate: datasource=github-releases depName=openai/codex extractVersion=^rust-v(?<version>.*)$
-CODEX_VERSION="${CODEX_VERSION:-0.120.0}"
+CODEX_VERSION="${CODEX_VERSION:-0.121.0}"
 
 # Python runtime dependencies (needed by copier/uv; no-op on Python-based images)
 # Developer experience tools: curl, wget, bat, bats, git, jq, openssh-client, tree, zsh
