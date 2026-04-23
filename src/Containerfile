@@ -1,5 +1,5 @@
 # Python tags: https://hub.docker.com/_/python
-FROM python:3.14.4-slim@sha256:5c3d466f020c296f446e8983515a472ca932bc279cfd8a2bf81ce5a241f8c8f2
+FROM python:3.14.4-slim@sha256:5c9b9aeee369d854acd666375ebb2a9a45a8ac9d264973bed69dbb28cf48f648
 
 COPY install-devtools.sh /tmp/
 RUN /tmp/install-devtools.sh
