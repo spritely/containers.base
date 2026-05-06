@@ -36,9 +36,9 @@ chmod +x /usr/local/bin/yq
 curl -fsSL https://claude.ai/install.sh | bash
 
 # Install OpenAI Codex (native binary)
-wget "https://github.com/openai/codex/releases/download/rust-v${CODEX_VERSION}/codex-x86_64-unknown-linux-gnu.tar.gz" -O /tmp/codex.tar.gz
+wget "https://github.com/openai/codex/releases/download/rust-v${CODEX_VERSION}/codex-x86_64-unknown-linux-musl.tar.gz" -O /tmp/codex.tar.gz
 tar -xzf /tmp/codex.tar.gz -C /tmp
-mv /tmp/codex-x86_64-unknown-linux-gnu /usr/local/bin/codex
+mv /tmp/codex-x86_64-unknown-linux-musl /usr/local/bin/codex
 chmod +x /usr/local/bin/codex
 rm /tmp/codex.tar.gz
 
