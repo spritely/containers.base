@@ -15,7 +15,7 @@ COPIER_VERSION="${COPIER_VERSION:-9.15.0}"
 
 # Codex releases: https://github.com/openai/codex/releases
 # renovate: datasource=github-releases depName=openai/codex extractVersion=^rust-v(?<version>.*)$
-CODEX_VERSION="${CODEX_VERSION:-0.125.0}"
+CODEX_VERSION="${CODEX_VERSION:-0.128.0}"
 
 # Python runtime dependencies (needed by copier/uv; no-op on Python-based images)
 # Developer experience tools: curl, wget, bat, bats, git, jq, openssh-client, tree, zsh
@@ -36,9 +36,9 @@ chmod +x /usr/local/bin/yq
 curl -fsSL https://claude.ai/install.sh | bash
 
 # Install OpenAI Codex (native binary)
-wget "https://github.com/openai/codex/releases/download/rust-v${CODEX_VERSION}/codex-x86_64-unknown-linux-gnu.tar.gz" -O /tmp/codex.tar.gz
+wget "https://github.com/openai/codex/releases/download/rust-v${CODEX_VERSION}/codex-x86_64-unknown-linux-musl.tar.gz" -O /tmp/codex.tar.gz
 tar -xzf /tmp/codex.tar.gz -C /tmp
-mv /tmp/codex-x86_64-unknown-linux-gnu /usr/local/bin/codex
+mv /tmp/codex-x86_64-unknown-linux-musl /usr/local/bin/codex
 chmod +x /usr/local/bin/codex
 rm /tmp/codex.tar.gz
 
