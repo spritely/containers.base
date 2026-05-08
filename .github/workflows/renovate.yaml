@@ -2,12 +2,6 @@ name: Renovate
 
 on:
   workflow_dispatch:
-  # Daily at 12:00AM EST (5:00AM UTC), with a second run at 12:10AM EST (5:10AM UTC)
-  # Tier 0 (root dependency): two runs 10 minutes apart.
-  # Run 1 creates PRs, CI validates, Run 2 auto-merges.
-  schedule:
-    - cron: '0 5 * * *'
-    - cron: '10 5 * * *'
 
 jobs:
   renovate:
@@ -27,6 +21,7 @@ jobs:
         uses: renovatebot/github-action@79dc0ba74dc3de28db0a7aeb1d0b95d5bf5fde2a # v46.1.13
         with:
           token: ${{ steps.renovate-token.outputs.token }}
+          renovate-version: 43.169.0
         env:
           RENOVATE_REPOSITORIES: ${{ github.repository }}
           RENOVATE_ONBOARDING: false
