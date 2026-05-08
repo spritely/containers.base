@@ -3,22 +3,22 @@ name: Renovate
 on:
   workflow_dispatch:
     inputs:
-      renovate-version:
-        description: "The version of Renovate to use. Leave empty to use the latest version."
+      renovateVersion:
+        description: The version of Renovate to use. Leave empty to use the latest version.
         required: false
         default: ''
-      renovate-log-level:
-        description: "The log level for Renovate."
+      renovateLogLevel:
+        description: The log level for Renovate.
         required: false
-        default: 'info'
+        default: info
         type: choice
         options:
-          - 'trace'
-          - 'debug'
-          - 'info'
-          - 'warn'
-          - 'error'
-          - 'fatal'
+          - trace
+          - debug
+          - info
+          - warn
+          - error
+          - fatal
 
 jobs:
   renovate:
@@ -30,6 +30,7 @@ jobs:
         with:
           app-id: ${{ secrets.RENOVATE_APP_ID }}
           private-key: ${{ secrets.RENOVATE_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
 
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -38,8 +39,8 @@ jobs:
         uses: renovatebot/github-action@79dc0ba74dc3de28db0a7aeb1d0b95d5bf5fde2a # v46.1.13
         with:
           token: ${{ steps.renovate-token.outputs.token }}
-          renovate-version: ${{ inputs.renovate-version }}
+          renovate-version: ${{ inputs.renovateVersion }}
         env:
-          LOG_LEVEL: ${{ inputs.renovate-log-level }}
+          LOG_LEVEL: ${{ inputs.renovateLogLevel }}W
           RENOVATE_REPOSITORIES: ${{ github.repository }}
           RENOVATE_ONBOARDING: false
