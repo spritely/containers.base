@@ -41,6 +41,6 @@ jobs:
           token: ${{ steps.renovate-token.outputs.token }}
           renovate-version: ${{ inputs.renovateVersion }}
         env:
-          LOG_LEVEL: ${{ inputs.renovateLogLevel }}W
+          LOG_LEVEL: ${{ inputs.renovateLogLevel }}
           RENOVATE_REPOSITORIES: ${{ github.repository }}
           RENOVATE_ONBOARDING: false
