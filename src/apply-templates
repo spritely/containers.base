@@ -6,12 +6,14 @@ set -euo pipefail
 CONFIG_DIR=".templates"
 
 usage() {
-    echo "Usage: apply-templates [--config-dir PATH]"
+    echo "Usage: apply-templates [--config-dir PATH] [--group GROUP]"
     echo ""
     echo "Apply templates defined in CONFIG_DIR/config.{yaml,yml} to the current project."
     echo ""
     echo "Options:"
     echo "  --config-dir PATH  Config directory (default: .templates)"
+    echo "  --group GROUP      Only apply templates whose 'groups' list includes GROUP"
+    echo "                     (default: apply all templates, ignoring groups)"
     echo "  --help             Show this help message"
     exit 0
 }
@@ -40,10 +42,15 @@ find_config_file() {
 }
 
 # Parse arguments
+GROUP=""
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --config-dir)
             CONFIG_DIR="$2"
+            shift 2
+            ;;
+        --group)
+            GROUP="$2"
             shift 2
             ;;
         --help)
@@ -105,10 +112,27 @@ expand_includes() {
 
 MERGED_TEMPLATES=$(expand_includes "$RAW_TEMPLATES")
 
+# A 'groups' field must be a list if present, regardless of --group usage,
+# so a typo like `groups: auto` (string) fails fast instead of matching
+# unexpected templates via jq's string 'index' semantics.
+INVALID_TEMPLATE=$(echo "$MERGED_TEMPLATES" | jq -r '[.[] | select(.groups != null and (.groups | type) != "array")][0].name // empty')
+if [[ -n "$INVALID_TEMPLATE" ]]; then
+    echo "Error: Template '$INVALID_TEMPLATE' has invalid 'groups' field: must be a list" >&2
+    exit 1
+fi
+
+if [[ -n "$GROUP" ]]; then
+    MERGED_TEMPLATES=$(echo "$MERGED_TEMPLATES" | jq --arg g "$GROUP" '[.[] | select((.groups // []) | index($g) != null)]')
+fi
+
 TEMPLATE_COUNT=$(echo "$MERGED_TEMPLATES" | jq 'length')
 
 if [[ "$TEMPLATE_COUNT" -eq 0 ]]; then
-    echo "No templates found in config."
+    if [[ -n "$GROUP" ]]; then
+        echo "No templates found for group '$GROUP'."
+    else
+        echo "No templates found in config."
+    fi
     exit 0
 fi
 

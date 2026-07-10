@@ -599,6 +599,178 @@ EOF
     assert_file_content "$TARGET_DIR/local.txt" "local"
 }
 
+# ===== Group option tests =====
+
+@test "group: no --group flag runs all templates regardless of tags" {
+    local source1="$TEST_DIR/group-untagged-source"
+    local source2="$TEST_DIR/group-tagged-source"
+    mkdir -p "$source1" "$source2"
+    echo "untagged" > "$source1/untagged.txt"
+    echo "tagged" > "$source2/tagged.txt"
+
+    cat > "$CONFIG_DIR/config.yaml" <<EOF
+templates:
+  - name: untagged-template
+    type: copy
+    source: $source1
+    target: $TARGET_DIR
+  - name: tagged-template
+    type: copy
+    source: $source2
+    target: $TARGET_DIR
+    groups: [auto]
+EOF
+
+    run apply-templates --config-dir "$CONFIG_DIR"
+    [ "$status" -eq 0 ]
+    assert_file_content "$TARGET_DIR/untagged.txt" "untagged"
+    assert_file_content "$TARGET_DIR/tagged.txt" "tagged"
+}
+
+@test "group: --group filters to only matching templates" {
+    local source1="$TEST_DIR/group-filter-untagged-source"
+    local source2="$TEST_DIR/group-filter-tagged-source"
+    mkdir -p "$source1" "$source2"
+    echo "untagged" > "$source1/untagged.txt"
+    echo "tagged" > "$source2/tagged.txt"
+
+    cat > "$CONFIG_DIR/config.yaml" <<EOF
+templates:
+  - name: untagged-template
+    type: copy
+    source: $source1
+    target: $TARGET_DIR
+  - name: tagged-template
+    type: copy
+    source: $source2
+    target: $TARGET_DIR
+    groups: [auto]
+EOF
+
+    run apply-templates --config-dir "$CONFIG_DIR" --group auto
+    [ "$status" -eq 0 ]
+    [ ! -f "$TARGET_DIR/untagged.txt" ]
+    assert_file_content "$TARGET_DIR/tagged.txt" "tagged"
+}
+
+@test "group: template can belong to multiple groups" {
+    local source_dir="$TEST_DIR/group-multi-source"
+    mkdir -p "$source_dir"
+    echo "multi" > "$source_dir/multi.txt"
+
+    cat > "$CONFIG_DIR/config.yaml" <<EOF
+templates:
+  - name: multi-group-template
+    type: copy
+    source: $source_dir
+    target: $TARGET_DIR
+    groups: [auto, nightly]
+EOF
+
+    run apply-templates --config-dir "$CONFIG_DIR" --group nightly
+    [ "$status" -eq 0 ]
+    assert_file_content "$TARGET_DIR/multi.txt" "multi"
+}
+
+@test "group: no matches prints a clear message and exits cleanly" {
+    local source_dir="$TEST_DIR/group-nomatch-source"
+    mkdir -p "$source_dir"
+    echo "content" > "$source_dir/file.txt"
+
+    cat > "$CONFIG_DIR/config.yaml" <<EOF
+templates:
+  - name: untagged-template
+    type: copy
+    source: $source_dir
+    target: $TARGET_DIR
+EOF
+
+    run apply-templates --config-dir "$CONFIG_DIR" --group nonexistent
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"No templates found for group 'nonexistent'"* ]]
+    [ ! -f "$TARGET_DIR/file.txt" ]
+}
+
+@test "group: non-array groups field errors clearly" {
+    local source_dir="$TEST_DIR/group-invalid-source"
+    mkdir -p "$source_dir"
+    echo "content" > "$source_dir/file.txt"
+
+    cat > "$CONFIG_DIR/config.yaml" <<EOF
+templates:
+  - name: bad-groups-template
+    type: copy
+    source: $source_dir
+    target: $TARGET_DIR
+    groups: auto
+EOF
+
+    run apply-templates --config-dir "$CONFIG_DIR"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"'groups' field: must be a list"* ]]
+}
+
+@test "group: filtering applies to templates pulled in via include" {
+    local source1="$TEST_DIR/group-include-main-source"
+    local source2="$TEST_DIR/group-include-tagged-source"
+    mkdir -p "$source1" "$source2"
+    echo "main" > "$source1/main.txt"
+    echo "included-tagged" > "$source2/included-tagged.txt"
+
+    cat > "$CONFIG_DIR/extra.yaml" <<EOF
+templates:
+  - name: included-tagged-template
+    type: copy
+    source: $source2
+    target: $TARGET_DIR
+    groups: [auto]
+EOF
+
+    cat > "$CONFIG_DIR/config.yaml" <<EOF
+templates:
+  - name: main-template
+    type: copy
+    source: $source1
+    target: $TARGET_DIR
+  - include: extra.yaml
+EOF
+
+    run apply-templates --config-dir "$CONFIG_DIR" --group auto
+    [ "$status" -eq 0 ]
+    [ ! -f "$TARGET_DIR/main.txt" ]
+    assert_file_content "$TARGET_DIR/included-tagged.txt" "included-tagged"
+}
+
+@test "group: filtering applies to templates merged from config.local" {
+    local source1="$TEST_DIR/group-local-shared-source"
+    local source2="$TEST_DIR/group-local-tagged-source"
+    mkdir -p "$source1" "$source2"
+    echo "shared" > "$source1/shared.txt"
+    echo "local-tagged" > "$source2/local-tagged.txt"
+
+    cat > "$CONFIG_DIR/config.yaml" <<EOF
+templates:
+  - name: shared-template
+    type: copy
+    source: $source1
+    target: $TARGET_DIR
+EOF
+
+    cat > "$CONFIG_DIR/config.local.yaml" <<EOF
+templates:
+  - name: local-tagged-template
+    type: copy
+    source: $source2
+    target: $TARGET_DIR
+    groups: [auto]
+EOF
+
+    run apply-templates --config-dir "$CONFIG_DIR" --group auto
+    [ "$status" -eq 0 ]
+    [ ! -f "$TARGET_DIR/shared.txt" ]
+    assert_file_content "$TARGET_DIR/local-tagged.txt" "local-tagged"
+}
+
 # ===== Config tests =====
 
 @test "config: empty templates array exits cleanly" {
