@@ -61,11 +61,10 @@ chsh -s /bin/zsh root
 
 # Install uv (fast Python package installer)
 # See: https://github.com/astral-sh/uv
-export UV_INSTALL_DIR=/usr/local/bin
-curl -LsSf "https://astral.sh/uv/${UV_VERSION}/install.sh" | sh
+curl -LsSf "https://astral.sh/uv/${UV_VERSION}/install.sh" | UV_INSTALL_DIR=/usr/local/bin sh
 
-# Install Python if the image doesn't already have one.
-if ! python3 -c 'import ssl' >/dev/null 2>&1; then
+# Install Python if the image doesn't already it.
+if ! UV_PYTHON_INSTALL_DIR=/opt/python uv python find "${PYTHON_VERSION}" >/dev/null 2>&1; then
     UV_PYTHON_INSTALL_DIR=/opt/python UV_PYTHON_BIN_DIR=/usr/local/bin uv python install --default "${PYTHON_VERSION}"
     chmod -R a+rX /opt/python
 fi
