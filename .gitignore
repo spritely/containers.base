@@ -1,4 +1,4 @@
 *.env
 .claude/settings.local.json
 .templates/config.local.yaml
-report.xml
+test-results/
