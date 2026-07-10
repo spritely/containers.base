@@ -12,6 +12,12 @@
       "matchPackageNames": ["spritely/actions.semantic-version", "spritely/actions.publish-container"],
       "automerge": false,
       "groupName": "spritely actions"
+    },
+    {
+      "description": "Keep the python base image and PYTHON_VERSION in lockstep",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["python"],
+      "groupName": "python"
     }
   ],
   "customManagers": [
