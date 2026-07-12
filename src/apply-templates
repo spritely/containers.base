@@ -244,6 +244,20 @@ apply_template_copy() {
     fi
 }
 
+# Run 'copier copy'. When answers were already recorded, reuse them as defaults
+# so re-applying a template never prompts.
+copier_copy() {
+    local template_source="$1"
+    local target="$2"
+    local answers_file="$3"
+    local answers_abs="$4"
+
+    local args=(--overwrite --trust -a "$answers_file")
+    [[ -f "$answers_abs" ]] && args=(--defaults "${args[@]}")
+
+    copier copy "${args[@]}" "$template_source" "$target"
+}
+
 apply_template_copier() {
     local name="$1"
     local source="$2"
@@ -270,36 +284,9 @@ apply_template_copier() {
 
     trap '[[ -n "$copier_temp_dir" ]] && rm -rf "$copier_temp_dir"' RETURN
 
-    if [[ -n "$path" ]]; then
-        # copier has no --subdir flag, so clone and point copier at the local subdir.
-        # We always re-copy (not update) since copier update cannot change _src_path.
-        copier_temp_dir=$(mktemp -d)
-
-        if [[ -n "$ref" ]]; then
-            git clone --branch "$ref" --depth 1 "$source" "$copier_temp_dir/repo" 2>&1
-        else
-            git clone --depth 1 "$source" "$copier_temp_dir/repo" 2>&1
-        fi
-
-        local template_source="$copier_temp_dir/repo/$path"
-        if [[ ! -d "$template_source" ]]; then
-            echo "Error: Path '$path' does not exist in repository '$source'" >&2
-            return 1
-        fi
-
-        if [[ -f "$answers_abs" ]]; then
-            copier copy --defaults --overwrite --trust -a "$answers_file" "$template_source" "$target"
-        else
-            copier copy --overwrite --trust -a "$answers_file" "$template_source" "$target"
-        fi
-
-        # Patch _src_path to the original URL so the answers file doesn't point at the temp dir.
-        if [[ -f "$answers_abs" ]]; then
-            yq -i "._src_path = \"$source\"" "$answers_abs"
-        else
-            echo "Warning: copier did not create an answers file for '$name'." >&2
-        fi
-    else
+    # A whole repository is the one source copier can resolve on its own, so it
+    # can also update an existing checkout in place rather than re-copying.
+    if [[ ! -d "$source" && -z "$path" ]]; then
         local ref_args=()
         [[ -n "$ref" ]] && ref_args=(--vcs-ref "$ref")
 
@@ -308,6 +295,54 @@ apply_template_copier() {
         else
             copier copy --overwrite --trust -a "$answers_file" "${ref_args[@]}" "$source" "$target"
         fi
+        return
+    fi
+
+    # Every other source has to be staged into a temp directory for copier:
+    #   - copier has no --subdir flag, so a repository subdirectory must be cloned out
+    #   - handed a git repository, copier renders its committed state, but a local
+    #     directory source can also be a templating source
+    # copier cannot update from a staged directory, so these always re-copy, and
+    # _src_path is rewritten afterwards so the answers file never names the temp dir.
+    copier_temp_dir=$(mktemp -d)
+    local template_source
+    local src_path
+
+    if [[ -d "$source" ]]; then
+        if [[ -n "$ref" ]]; then
+            echo "Warning: 'ref' is not supported for local directory sources. Ignoring for '$name'." >&2
+        fi
+
+        src_path="$source${path:+/$path}"
+        if [[ ! -d "$src_path" ]]; then
+            echo "Error: Path '$path' does not exist in source '$source'" >&2
+            return 1
+        fi
+
+        template_source="$copier_temp_dir/template"
+        mkdir -p "$template_source"
+        tar -cf - --exclude='.git' -C "$src_path" . | tar -xf - -C "$template_source"
+    else
+        if [[ -n "$ref" ]]; then
+            git clone --branch "$ref" --depth 1 "$source" "$copier_temp_dir/repo" 2>&1
+        else
+            git clone --depth 1 "$source" "$copier_temp_dir/repo" 2>&1
+        fi
+
+        template_source="$copier_temp_dir/repo/$path"
+        if [[ ! -d "$template_source" ]]; then
+            echo "Error: Path '$path' does not exist in repository '$source'" >&2
+            return 1
+        fi
+        src_path="$source"
+    fi
+
+    copier_copy "$template_source" "$target" "$answers_file" "$answers_abs"
+
+    if [[ -f "$answers_abs" ]]; then
+        yq -i "._src_path = \"$src_path\"" "$answers_abs"
+    else
+        echo "Warning: copier did not create an answers file for '$name'." >&2
     fi
 }
 

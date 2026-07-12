@@ -56,16 +56,36 @@ create_git_repo() {
 }
 
 # Create a copier template git repo from the copier fixture.
-# Usage: create_copier_template DEST TAG
+# Tests that mean "a remote git source" pass file://$dest as the source, since a
+# plain path to this directory is instead treated as a local directory source.
+# Usage: create_copier_template DEST TAG [SUBDIR]
 create_copier_template() {
     local dest="$1"
     local tag="$2"
+    local subdir="${3:-}"
 
-    cp -a "$FIXTURE_DIR/copier-template" "$dest"
+    mkdir -p "$dest/$subdir"
+    cp -a "$FIXTURE_DIR/copier-template/." "$dest/$subdir/"
     git -C "$dest" init 2>/dev/null
     git -C "$dest" add -A
     git -C "$dest" commit -m "init" 2>/dev/null
     git -C "$dest" tag "$tag"
+}
+
+# Create a copier template as a plain (non-git) directory.
+# Usage: create_copier_dir DEST [SUBDIR]
+create_copier_dir() {
+    local dest="$1"
+    local subdir="${2:-}"
+
+    mkdir -p "$dest/$subdir"
+    cp -a "$FIXTURE_DIR/copier-template/." "$dest/$subdir/"
+}
+
+# Change a copier template's rendered output so a re-apply is observable.
+# Usage: set_template_content TEMPLATE_DIR CONTENT
+set_template_content() {
+    echo "$2" > "$1/template/README.md.jinja"
 }
 
 # Assert a file exists and contains the expected content.
@@ -372,7 +392,7 @@ EOF
 templates:
   - name: copier-with-strategy
     type: copier
-    source: $template_dir
+    source: git+file://$template_dir
     strategy: merge
     ref: v1.0.0
     target: $TARGET_DIR
@@ -386,18 +406,13 @@ EOF
 
 @test "path: copier type uses subdirectory of repository" {
     local repo_dir="$TEST_DIR/copier-path-repo"
-    mkdir -p "$repo_dir/subtemplate"
-    cp -a "$FIXTURE_DIR/copier-template/." "$repo_dir/subtemplate/"
-    git -C "$repo_dir" init 2>/dev/null
-    git -C "$repo_dir" add -A
-    git -C "$repo_dir" commit -m "init" 2>/dev/null
-    git -C "$repo_dir" tag v1.0.0
+    create_copier_template "$repo_dir" v1.0.0 subtemplate
 
     cat > "$CONFIG_DIR/config.yaml" <<EOF
 templates:
   - name: copier-subdir
     type: copier
-    source: $repo_dir
+    source: file://$repo_dir
     path: subtemplate
     ref: v1.0.0
     target: $TARGET_DIR
@@ -408,6 +423,9 @@ EOF
     [ "$status" -eq 0 ]
     [ -f "$TARGET_DIR/README.md" ]
     [ -f "$TARGET_DIR/.copier-answers.copier-subdir.yaml" ]
+
+    # _src_path points at the source repo, not the temp dir it was cloned into
+    [[ "$(yq '._src_path' "$TARGET_DIR/.copier-answers.copier-subdir.yaml")" == "file://$repo_dir" ]]
 }
 
 @test "path: copier type errors on nonexistent path" {
@@ -418,7 +436,7 @@ EOF
 templates:
   - name: copier-bad-path
     type: copier
-    source: $template_dir
+    source: file://$template_dir
     path: nonexistent
     ref: v1.0.0
     target: $TARGET_DIR
@@ -476,7 +494,7 @@ EOF
 templates:
   - name: copier-test
     type: copier
-    source: $template_dir
+    source: git+file://$template_dir
     ref: v1.0.0
     target: $TARGET_DIR
 EOF
@@ -500,7 +518,7 @@ EOF
 templates:
   - name: copier-update
     type: copier
-    source: $template_dir
+    source: git+file://$template_dir
     ref: v1.0.0
     target: $TARGET_DIR
 EOF
@@ -519,6 +537,139 @@ EOF
     run apply-templates --config-dir "$CONFIG_DIR"
     echo "Second run: $output"
     [ "$status" -eq 0 ]
+}
+
+# ===== Copier local directory source tests =====
+
+@test "copier-local: applies a plain directory source" {
+    local template_dir="$TEST_DIR/copier-local-tmpl"
+    create_copier_dir "$template_dir"
+    set_template_content "$template_dir" "local content"
+
+    cat > "$CONFIG_DIR/config.yaml" <<EOF
+templates:
+  - name: copier-local
+    type: copier
+    source: $template_dir
+    target: $TARGET_DIR
+EOF
+
+    run apply-templates --config-dir "$CONFIG_DIR"
+    echo "$output"
+    [ "$status" -eq 0 ]
+    assert_file_content "$TARGET_DIR/README.md" "local content"
+    [[ "$(yq '._src_path' "$TARGET_DIR/.copier-answers.copier-local.yaml")" == "$template_dir" ]]
+}
+
+@test "copier-local: applies a subdirectory of a directory source" {
+    local template_dir="$TEST_DIR/copier-local-subdir-tmpl"
+    create_copier_dir "$template_dir" subtemplate
+    set_template_content "$template_dir/subtemplate" "local subdir content"
+
+    cat > "$CONFIG_DIR/config.yaml" <<EOF
+templates:
+  - name: copier-local-subdir
+    type: copier
+    source: $template_dir
+    path: subtemplate
+    target: $TARGET_DIR
+EOF
+
+    run apply-templates --config-dir "$CONFIG_DIR"
+    echo "$output"
+    [ "$status" -eq 0 ]
+    assert_file_content "$TARGET_DIR/README.md" "local subdir content"
+    [ -f "$TARGET_DIR/.copier-answers.copier-local-subdir.yaml" ]
+}
+
+@test "copier-local: re-applies on subsequent runs instead of updating" {
+    local template_dir="$TEST_DIR/copier-local-rerun-tmpl"
+    create_copier_dir "$template_dir"
+    set_template_content "$template_dir" "first version"
+
+    cat > "$CONFIG_DIR/config.yaml" <<EOF
+templates:
+  - name: copier-local-rerun
+    type: copier
+    source: $template_dir
+    target: $TARGET_DIR
+EOF
+
+    run apply-templates --config-dir "$CONFIG_DIR"
+    echo "First run: $output"
+    [ "$status" -eq 0 ]
+    assert_file_content "$TARGET_DIR/README.md" "first version"
+
+    # A plain directory has no versions for 'copier update' to resolve, so the
+    # second run must re-copy — and pick up edits made since the first run.
+    set_template_content "$template_dir" "second version"
+
+    run apply-templates --config-dir "$CONFIG_DIR"
+    echo "Second run: $output"
+    [ "$status" -eq 0 ]
+    assert_file_content "$TARGET_DIR/README.md" "second version"
+}
+
+@test "copier-local: uses the working tree, not the committed state" {
+    local template_dir="$TEST_DIR/copier-local-worktree-tmpl"
+    create_copier_template "$template_dir" v1.0.0 subtemplate
+
+    # Uncommitted edit: the whole point of a local directory source
+    set_template_content "$template_dir/subtemplate" "uncommitted content"
+
+    cat > "$CONFIG_DIR/config.yaml" <<EOF
+templates:
+  - name: copier-local-worktree
+    type: copier
+    source: $template_dir
+    path: subtemplate
+    target: $TARGET_DIR
+EOF
+
+    run apply-templates --config-dir "$CONFIG_DIR"
+    echo "$output"
+    [ "$status" -eq 0 ]
+    assert_file_content "$TARGET_DIR/README.md" "uncommitted content"
+}
+
+@test "copier-local: warns that ref is ignored" {
+    local template_dir="$TEST_DIR/copier-local-ref-tmpl"
+    create_copier_template "$template_dir" v1.0.0
+    set_template_content "$template_dir" "working tree content"
+
+    cat > "$CONFIG_DIR/config.yaml" <<EOF
+templates:
+  - name: copier-local-ref
+    type: copier
+    source: $template_dir
+    ref: v1.0.0
+    target: $TARGET_DIR
+EOF
+
+    run apply-templates --config-dir "$CONFIG_DIR"
+    echo "$output"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"'ref' is not supported for local directory sources"* ]]
+    # v1.0.0 was not checked out — the working tree was used
+    assert_file_content "$TARGET_DIR/README.md" "working tree content"
+}
+
+@test "copier-local: errors on nonexistent path" {
+    local template_dir="$TEST_DIR/copier-local-badpath-tmpl"
+    create_copier_dir "$template_dir"
+
+    cat > "$CONFIG_DIR/config.yaml" <<EOF
+templates:
+  - name: copier-local-bad-path
+    type: copier
+    source: $template_dir
+    path: nonexistent
+    target: $TARGET_DIR
+EOF
+
+    run apply-templates --config-dir "$CONFIG_DIR"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"Path 'nonexistent' does not exist in source"* ]]
 }
 
 # ===== File extension tests =====
@@ -1379,7 +1530,7 @@ EOF
 templates:
   - name: run-copier
     type: copier
-    source: $template_dir
+    source: git+file://$template_dir
     ref: v1.0.0
     target: $TARGET_DIR
     run: echo "from copier" > run-output.txt
