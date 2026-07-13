@@ -11,7 +11,7 @@ COPIER_VERSION="${COPIER_VERSION:-9.16.0}"
 
 # Codex releases: https://github.com/openai/codex/releases
 # renovate: datasource=github-releases depName=openai/codex extractVersion=^rust-v(?<version>.*)$
-CODEX_VERSION="${CODEX_VERSION:-0.144.0}"
+CODEX_VERSION="${CODEX_VERSION:-0.144.3}"
 
 # Python (used by copier; also the interpreter uv provisions on non-Python images)
 # renovate: datasource=docker depName=python versioning=docker
