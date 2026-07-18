@@ -1,6 +1,7 @@
+name: containers-base
+
 services:
-  containers-base-dev:
-    container_name: containers-base-dev
+  dev:
     build:
       context: ../src
       dockerfile: Containerfile
@@ -10,3 +11,7 @@ services:
       - ${HOME:-$USERPROFILE}/.ssh:/root/.ssh:ro
     env_file:
       - .env
+    # Environment variables have higher precedence than the .env file
+    # Bare name variables only pass through if set on the host
+    environment:
+      - GITHUB_TOKEN
