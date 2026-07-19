@@ -1,0 +1,165 @@
+#!/usr/bin/env bash
+set -uo pipefail
+
+# post-create: First-run setup for a devcontainer session — global git
+# user.name/user.email from the authenticated GitHub user (only for values not
+# already set), a GitHub auth fallback when no SSH agent is forwarded, delta
+# as the diff pager, an AppArmor exception for bubblewrap sandboxing, and
+# Claude Code onboarding defaults so it skips setup prompts on every rebuild.
+#
+# Intended to run as a devcontainer postCreateCommand ahead of tools that need a
+# git identity (e.g. apply-templates). It never overwrites existing git config
+# (VS Code may already have forwarded an identity) and always exits 0 so it can
+# be safely chained: post-create && apply-templates --group container-created
+
+has_config() {
+    git config --global --get "$1" >/dev/null 2>&1
+}
+
+# Configure git identity (user name and email) so git will work without manual configuration
+configure_identity() {
+    local name_set=false
+    local email_set=false
+    if has_config user.name; then name_set=true; fi
+    if has_config user.email; then email_set=true; fi
+
+    if $name_set && $email_set; then
+        echo "✓ git identity already configured — leaving as-is."
+        return
+    fi
+
+    if ! { command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; }; then
+        echo "⚠ Not authenticated with gh — skipping git user.name/user.email setup."
+        return
+    fi
+
+    local gh_user_json
+    if ! gh_user_json="$(gh api user)"; then
+        echo "⚠ Could not fetch GitHub user info — skipping git user.name/user.email setup."
+        return
+    fi
+    local gh_login="$(jq -r '.login' <<<"$gh_user_json")"
+    local gh_name="$(jq -r '.name // empty' <<<"$gh_user_json")"
+    local gh_id="$(jq -r '.id' <<<"$gh_user_json")"
+
+    if ! $name_set; then
+        git config --global user.name "${gh_name:-$gh_login}"
+    fi
+    if ! $email_set; then
+        git config --global user.email "${gh_id}+${gh_login}@users.noreply.github.com"
+    fi
+
+    echo "✓ git identity set from GitHub: $(git config --global user.name) <$(git config --global user.email)>"
+}
+
+# Configure a fallback if host machine doesn't have ssh configured
+configure_ssh_fallback() {
+    # Drop any stale x-access-token entries from a previous GITHUB_TOKEN before adding the
+    # current one, so old tokens don't linger in the config indefinitely.
+    git config --global --get-regexp '^url\.https://x-access-token:.*@github\.com/\.insteadof$' 2>/dev/null | \
+        while read -r key _; do git config --global --unset "$key"; done
+
+    if ssh-add -l >/dev/null 2>&1; then
+        echo "✓ SSH agent forwarded with keys loaded — git will use SSH."
+        return
+    fi
+
+    cat <<'MSG'
+⚠ No SSH keys visible in the forwarded agent.
+  On your HOST machine, load your key once:
+    macOS:   ssh-add --apple-use-keychain ~/.ssh/id_ed25519
+    Windows: Start-Service ssh-agent; ssh-add $env:USERPROFILE\.ssh\id_ed25519
+    Linux:   eval "$(ssh-agent)"; ssh-add ~/.ssh/id_ed25519
+  Then reopen/rebuild the dev container.
+  Falling back to GITHUB_TOKEN over HTTPS for now.
+MSG
+
+    if [[ -n "${GITHUB_TOKEN:-}" ]]; then
+        git config --global \
+            url."https://x-access-token:${GITHUB_TOKEN}@github.com/".insteadOf "git@github.com:"
+    else
+        echo "⚠ GITHUB_TOKEN not set either — no fallback auth configured; git operations against GitHub may fail."
+    fi
+}
+
+# Configure git-delta to improve diff visualizations
+configure_pager() {
+    if ! has_config core.pager; then
+        git config --global core.pager delta
+    fi
+}
+
+# Ubuntu 24.04+ ships an AppArmor default that blocks bubblewrap from creating
+# the user namespaces the Claude Code and Codex sandboxes need. Grant an
+# exception when that restriction is active on this host — checked here
+# rather than at image build time so it reads the real runtime kernel. Never
+# hard-fails; no-ops by design on Debian (see README).
+configure_apparmor_exception() {
+    if ! command -v apparmor_parser >/dev/null 2>&1; then
+        return
+    fi
+
+    local bwrap_path="$(command -v bwrap)"
+
+    local apparmor_restriction="$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || echo 0)"
+    if [[ "$apparmor_restriction" != "1" ]]; then
+        return
+    fi
+
+    tee /etc/apparmor.d/bwrap > /dev/null <<EOF
+abi <abi/4.0>,
+include <tunables/global>
+
+profile bwrap $bwrap_path flags=(unconfined) {
+  userns,
+  include if exists <local/bwrap>
+}
+EOF
+
+    if command -v systemctl >/dev/null 2>&1 && systemctl is-system-running >/dev/null 2>&1; then
+        if systemctl reload apparmor 2>/dev/null; then
+            echo "✓ Installed and reloaded AppArmor userns exception for bubblewrap."
+        else
+            echo "⚠ Could not reload AppArmor via systemctl — bubblewrap sandbox may not work until the container restarts."
+        fi
+    elif apparmor_parser -r /etc/apparmor.d/bwrap 2>/dev/null; then
+        echo "✓ Installed and reloaded (via apparmor_parser) AppArmor userns exception for bubblewrap."
+    else
+        echo "⚠ Could not load AppArmor profile for bubblewrap — sandboxed tools (Claude Code, Codex) may fail to create user namespaces."
+    fi
+}
+
+# Pre-populate ~/.claude.json with onboarding/trust defaults so Claude Code
+# doesn't prompt for them again every time this devcontainer is rebuilt.
+# Merges into (rather than clobbering) an existing file, since VS Code or a
+# prior run may have already put other state in there.
+configure_claude() {
+    local claude_json="$HOME/.claude.json"
+    local claude_defaults='{
+  "hasCompletedOnboarding": true,
+  "installMethod": "native",
+  "projects": {
+    "/src": {
+      "hasTrustDialogAccepted": true
+    }
+  }
+}'
+
+    # If jq fails due to a corrupt $claude_json we replace it with defaults
+    if [ -f "$claude_json" ] && jq -s '.[0] * .[1]' "$claude_json" <(echo "$claude_defaults") > "$claude_json.tmp" 2>/dev/null; then
+        mv "$claude_json.tmp" "$claude_json"
+    else
+        rm -f "$claude_json.tmp"
+        echo "$claude_defaults" | jq '.' > "$claude_json"
+    fi
+
+    echo "✓ Claude Code onboarding defaults set in $claude_json."
+}
+
+configure_identity
+configure_ssh_fallback
+configure_pager
+configure_apparmor_exception
+configure_claude
+
+exit 0

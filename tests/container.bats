@@ -8,6 +8,8 @@ setup() {
     EXPECTED_COPIER_VERSION=$(extract_version COPIER_VERSION)
     EXPECTED_YQ_VERSION=$(extract_version YQ_VERSION)
     EXPECTED_CODEX_VERSION=$(extract_version CODEX_VERSION)
+    EXPECTED_PYTHON_VERSION=$(extract_version PYTHON_VERSION)
+    EXPECTED_UV_VERSION=$(extract_version UV_VERSION)
 }
 
 # Version checks for tools with pinned versions in Containerfile
@@ -30,15 +32,22 @@ setup() {
     [[ "$output" == *"${EXPECTED_CODEX_VERSION}"* ]]
 }
 
+@test "python3 version matches Containerfile" {
+    run python3 --version
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"${EXPECTED_PYTHON_VERSION}"* ]]
+}
+
+@test "uv version matches Containerfile" {
+    run uv --version
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"${EXPECTED_UV_VERSION}"* ]]
+}
+
 # Core tools required by apply-templates
 
 @test "git is installed" {
     run git --version
-    [ "$status" -eq 0 ]
-}
-
-@test "python3 is installed" {
-    run python3 --version
     [ "$status" -eq 0 ]
 }
 
@@ -51,6 +60,12 @@ setup() {
     run which apply-templates
     [ "$status" -eq 0 ]
     [ -x "$(which apply-templates)" ]
+}
+
+@test "post-create is on PATH and executable" {
+    run which post-create
+    [ "$status" -eq 0 ]
+    [ -x "$(which post-create)" ]
 }
 
 # Developer experience tools
@@ -90,8 +105,43 @@ setup() {
     [ "$status" -eq 0 ]
 }
 
-@test "uv is installed" {
-    run uv --version
+@test "fd is installed and symlinked from fdfind" {
+    run fd --version
+    [ "$status" -eq 0 ]
+}
+
+@test "delta is installed" {
+    run delta --version
+    [ "$status" -eq 0 ]
+}
+
+@test "fzf is installed" {
+    run fzf --version
+    [ "$status" -eq 0 ]
+}
+
+@test "ripgrep is installed" {
+    run rg --version
+    [ "$status" -eq 0 ]
+}
+
+@test "tmux is installed" {
+    run tmux -V
+    [ "$status" -eq 0 ]
+}
+
+@test "bubblewrap is installed" {
+    run bwrap --version
+    [ "$status" -eq 0 ]
+}
+
+@test "hunspell is installed" {
+    run hunspell --version
+    [ "$status" -eq 0 ]
+}
+
+@test "socat is installed" {
+    run socat -V
     [ "$status" -eq 0 ]
 }
 

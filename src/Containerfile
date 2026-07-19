@@ -4,4 +4,4 @@ FROM python:3.14.6-slim-trixie@sha256:b877e50bd90de10af8d82c57a022fc2e0dc731c532
 COPY install-devtools.sh /tmp/
 RUN /tmp/install-devtools.sh
 
-COPY apply-templates merge-xml /usr/local/bin/
+COPY apply-templates merge-xml post-create /usr/local/bin/

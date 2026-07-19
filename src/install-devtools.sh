@@ -25,13 +25,21 @@ UV_VERSION="${UV_VERSION:-0.11.28}"
 # renovate: datasource=github-releases depName=mikefarah/yq extractVersion=^v(?<version>.*)$
 YQ_VERSION="${YQ_VERSION:-4.53.3}"
 
-# Developer experience tools: curl, wget, bat, bats, gh, git, jq, openssh-client, tree, zsh
+# Developer experience tools
 apt-get update && apt-get install -y \
-    curl wget bat bats gh git jq openssh-client tree zsh
+    bubblewrap openssh-client socat \
+    curl bat bats fd-find fzf jq ripgrep tree wget \
+    gh git git-delta \
+    hunspell hunspell-en-us \
+    tmux zsh
 
 # Make bat (installed as batcat) available as bat
 # See: https://github.com/sharkdp/bat
-ln -sf /usr/bin/batcat /usr/local/bin/bat
+ln -sf "$(command -v batcat)" /usr/local/bin/bat
+
+# Make fdfind available as fd
+# See: https://github.com/sharkdp/fd
+ln -sf "$(command -v fdfind)" /usr/local/bin/fd
 
 # Install yq (mikefarah/yq - Go-based YAML processor)
 curl -fsSL "https://github.com/mikefarah/yq/releases/download/v${YQ_VERSION}/yq_linux_amd64" -o /usr/local/bin/yq
