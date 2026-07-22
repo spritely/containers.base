@@ -10,6 +10,11 @@ setup() {
     export GIT_CONFIG_GLOBAL="$(mktemp)"
     export GIT_CONFIG_SYSTEM=/dev/null
     unset GITHUB_TOKEN
+    # HOST_UID/HOST_GID come from .devcontainer/.host.env (written by the host
+    # running `devcontainer up`) and land in this shell's real environment via
+    # compose's env_file — unset them so tests relying on the id(1) mock's
+    # fallback aren't at the mercy of whatever host happens to run the suite.
+    unset HOST_UID HOST_GID
     CAPTURE_DIR=$(mktemp -d)
     # Isolate ~/.claude.json writes from the real home directory.
     export HOME="$(mktemp -d)"
