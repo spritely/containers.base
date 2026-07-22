@@ -10,16 +10,23 @@ setup() {
     export GIT_CONFIG_GLOBAL="$(mktemp)"
     export GIT_CONFIG_SYSTEM=/dev/null
     unset GITHUB_TOKEN
-    # Default to "no SSH keys forwarded" so tests are deterministic regardless
-    # of whether the machine running them has a real SSH agent.
-    mock_ssh_add 1
     CAPTURE_DIR=$(mktemp -d)
     # Isolate ~/.claude.json writes from the real home directory.
     export HOME="$(mktemp -d)"
+    # Isolate the proxy-CA install from the real trust store. PROXY_CA_SOURCE
+    # defaults to a missing path so the certificate authority install no-ops unless a test provides
+    # it; stub update-ca-certificates so it never touches the host.
+    export CA_CERTIFICATES_DIR="$(mktemp -d)"
+    export PROXY_CA_SOURCE="$CAPTURE_DIR/missing-ca.pem"
+    cat > "$BIN/update-ca-certificates" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+    chmod +x "$BIN/update-ca-certificates"
 }
 
 teardown() {
-    rm -rf "$BIN" "$GIT_CONFIG_GLOBAL" "$CAPTURE_DIR" "$HOME"
+    rm -rf "$BIN" "$GIT_CONFIG_GLOBAL" "$CAPTURE_DIR" "$HOME" "$CA_CERTIFICATES_DIR"
 }
 
 # Put a fake gh on PATH.
@@ -32,17 +39,6 @@ if [[ "\$1 \$2" == "auth status" ]]; then exit $auth_exit; fi
 if [[ "\$1 \$2" == "api user" ]]; then echo '$user_json'; exit $api_user_exit; fi
 EOF
     chmod +x "$BIN/gh"
-}
-
-# Put a fake ssh-add on PATH.
-# Usage: mock_ssh_add LIST_EXIT
-mock_ssh_add() {
-    local list_exit="$1"
-    cat > "$BIN/ssh-add" <<EOF
-#!/usr/bin/env bash
-if [[ "\$1" == "-l" ]]; then exit $list_exit; fi
-EOF
-    chmod +x "$BIN/ssh-add"
 }
 
 # Put a fake apparmor_parser on PATH.
@@ -97,8 +93,40 @@ EOF
 
 get_name() { git config --global --get user.name; }
 get_email() { git config --global --get user.email; }
-get_insteadof() { git config --global --get "url.https://x-access-token:${1}@github.com/.insteadOf"; }
 get_pager() { git config --global --get core.pager; }
+
+# configure_proxy_ca
+
+@test "installs the proxy certificate authority into the trust store when present" {
+    export PROXY_CA_SOURCE="$CAPTURE_DIR/ca.pem"
+    echo "FAKE CA" > "$PROXY_CA_SOURCE"
+    mock_gh 0 '{"login":"octocat","name":"The Octocat","id":583231}'
+    run "$SCRIPT"
+    [ "$status" -eq 0 ]
+    [ -f "$CA_CERTIFICATES_DIR/mitmproxy.crt" ]
+    [ "$(cat "$CA_CERTIFICATES_DIR/mitmproxy.crt")" = "FAKE CA" ]
+    [[ "$output" == *"Trusted credential proxy certificate authority"* ]]
+}
+
+@test "warns and continues when the proxy certificate authority is absent" {
+    # PROXY_CA_SOURCE defaults to a missing path (see setup).
+    mock_gh 0 '{"login":"octocat","name":"The Octocat","id":583231}'
+    run "$SCRIPT"
+    [ "$status" -eq 0 ]
+    [ ! -f "$CA_CERTIFICATES_DIR/mitmproxy.crt" ]
+    [[ "$output" == *"Proxy certificate authority not found"* ]]
+}
+
+@test "configure_proxy_ca is idempotent" {
+    export PROXY_CA_SOURCE="$CAPTURE_DIR/ca.pem"
+    echo "FAKE CA" > "$PROXY_CA_SOURCE"
+    mock_gh 0 '{"login":"octocat","name":"The Octocat","id":583231}'
+    run "$SCRIPT"
+    [ "$status" -eq 0 ]
+    run "$SCRIPT"
+    [ "$status" -eq 0 ]
+    [ "$(cat "$CA_CERTIFICATES_DIR/mitmproxy.crt")" = "FAKE CA" ]
+}
 
 # configure_identity
 
@@ -168,55 +196,6 @@ get_pager() { git config --global --get core.pager; }
     [ "$(get_email)" = "583231+octocat@users.noreply.github.com" ]
 }
 
-# configure_ssh_fallback
-
-@test "configures HTTPS fallback from GITHUB_TOKEN when no SSH keys are forwarded" {
-    mock_gh 0 '{"login":"octocat","name":"The Octocat","id":583231}'
-    GITHUB_TOKEN=some-token run "$SCRIPT"
-    [ "$status" -eq 0 ]
-    [ "$(get_insteadof some-token)" = "git@github.com:" ]
-}
-
-@test "exits 0 with a warning when no SSH keys are forwarded and GITHUB_TOKEN is unset" {
-    mock_gh 0 '{"login":"octocat","name":"The Octocat","id":583231}'
-    run "$SCRIPT"
-    [ "$status" -eq 0 ]
-    [[ "$output" == *"GITHUB_TOKEN not set"* ]]
-}
-
-@test "does not configure HTTPS fallback when SSH keys are forwarded" {
-    mock_gh 0 '{"login":"octocat","name":"The Octocat","id":583231}'
-    mock_ssh_add 0
-    GITHUB_TOKEN=some-token run "$SCRIPT"
-    [ "$status" -eq 0 ]
-    run get_insteadof some-token
-    [ "$status" -ne 0 ]
-}
-
-@test "replaces a stale GITHUB_TOKEN entry on rotation" {
-    mock_gh 0 '{"login":"octocat","name":"The Octocat","id":583231}'
-    GITHUB_TOKEN=old-token run "$SCRIPT"
-    [ "$status" -eq 0 ]
-    GITHUB_TOKEN=new-token run "$SCRIPT"
-    [ "$status" -eq 0 ]
-    [ "$(get_insteadof new-token)" = "git@github.com:" ]
-    run get_insteadof old-token
-    [ "$status" -ne 0 ]
-}
-
-@test "cleans up a stale GITHUB_TOKEN entry once SSH keys are forwarded" {
-    mock_gh 0 '{"login":"octocat","name":"The Octocat","id":583231}'
-    GITHUB_TOKEN=old-token run "$SCRIPT"
-    [ "$status" -eq 0 ]
-    [ "$(get_insteadof old-token)" = "git@github.com:" ]
-
-    mock_ssh_add 0
-    run "$SCRIPT"
-    [ "$status" -eq 0 ]
-    run get_insteadof old-token
-    [ "$status" -ne 0 ]
-}
-
 # configure_pager
 
 @test "sets delta as the diff pager" {
@@ -236,13 +215,15 @@ get_pager() { git config --global --get core.pager; }
 
 # Cross-function behavior
 
-@test "still configures SSH fallback and pager when identity is already set" {
+@test "still trusts the proxy certificate authority and sets the pager when identity is already set" {
+    export PROXY_CA_SOURCE="$CAPTURE_DIR/ca.pem"
+    echo "FAKE CA" > "$PROXY_CA_SOURCE"
     git config --global user.name "Existing Name"
     git config --global user.email "existing@example.com"
     mock_gh 0 '{"login":"octocat","name":"The Octocat","id":583231}'
-    GITHUB_TOKEN=some-token run "$SCRIPT"
+    run "$SCRIPT"
     [ "$status" -eq 0 ]
-    [ "$(get_insteadof some-token)" = "git@github.com:" ]
+    [ -f "$CA_CERTIFICATES_DIR/mitmproxy.crt" ]
     [ "$(get_pager)" = "delta" ]
 }
 
