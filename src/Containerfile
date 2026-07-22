@@ -1,7 +1,16 @@
 # Python tags: https://hub.docker.com/_/python
 FROM python:3.14.6-slim-trixie@sha256:b877e50bd90de10af8d82c57a022fc2e0dc731c5320d762a27986facfc3355c1
 
+# Create dev user as the main user instead of root
+ARG USER_UID=1000
+ARG USER_GID=$USER_UID
+
+RUN groupadd --gid $USER_GID dev \
+    && useradd --uid $USER_UID --gid $USER_GID -m dev
+
 COPY install-devtools.sh /tmp/
 RUN /tmp/install-devtools.sh
 
 COPY apply-templates merge-xml post-create /usr/local/bin/
+
+USER dev

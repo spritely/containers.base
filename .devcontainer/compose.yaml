@@ -8,15 +8,15 @@ services:
     command: /bin/sh -c "sleep infinity"
     # Don't start until the proxy is listening (and has generated its CA).
     depends_on:
-      proxy:
+      credentials-proxy:
         condition: service_healthy
     environment:
-      HTTP_PROXY: http://proxy:8080
-      HTTPS_PROXY: http://proxy:8080
+      HTTP_PROXY: http://credentials-proxy:8080
+      HTTPS_PROXY: http://credentials-proxy:8080
       NO_PROXY: localhost,127.0.0.1
       # Node ignores the OS trust store, so point Claude Code at the proxy CA
       # directly (git/curl/python are covered by post-create's system install).
-      NODE_EXTRA_CA_CERTS: /proxy-ca/mitmproxy-ca-cert.pem
+      NODE_EXTRA_CA_CERTS: /certificate/mitmproxy-ca-cert.pem
       # Sentinel credentials — NOT secret. The INJECT=<NAME> marker tells the
       # proxy which real secret to substitute on the way out.
       ANTHROPIC_API_KEY: INJECT=ANTHROPIC_API_KEY
@@ -26,17 +26,18 @@ services:
       - ../:/src
       # Codex doesn't have environment variables to do this without an
       # enterprise subscription so map in common auth folder instead
-      - ${HOME:-$USERPROFILE}/.codex:/root/.codex
+      - ${HOME:-$USERPROFILE}/.codex:/home/dev/.codex
       # Read-only view of the proxy's certificate authority so the dev container can trust it.
-      - proxy-ca:/proxy-ca:ro
+      - credentials-proxy-certificate:/certificate:ro
     env_file:
-      - .env
+      - path: .env
+        required: false
+      - path: .host.env
+        required: false
 
   # Holds the real credentials and injects them into outbound requests
-  proxy:
-    build:
-      context: ../proxy
-      dockerfile: Containerfile
+  credentials-proxy:
+    image: docker.io/spritelydev/credentials-proxy:0.1.0@sha256:5212380ed12b64fc32e4baabecdb3334bb5d6a103952781b92721c0988e3b274
     environment:
       # host -> secret names the client is allowed to request for that host.
       # injector.py derives its --allow-hosts intercept list from these hosts too.
@@ -48,7 +49,7 @@ services:
       - CLAUDE_CODE_OAUTH_TOKEN
       - GITHUB_TOKEN
     volumes:
-      - proxy-ca:/home/mitmproxy/.mitmproxy
+      - credentials-proxy-certificate:/home/mitmproxy/.mitmproxy
     healthcheck:
       test:
         - CMD-SHELL
@@ -67,4 +68,4 @@ secrets:
     environment: GITHUB_TOKEN
 
 volumes:
-  proxy-ca:
+  credentials-proxy-certificate:

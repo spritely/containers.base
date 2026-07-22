@@ -12,9 +12,69 @@ set -uo pipefail
 # (VS Code may already have forwarded an identity) and always exits 0 so it can
 # be safely chained: post-create && apply-templates --group container-created
 
+SUDO=""
+[ "$(id -u)" -ne 0 ] && SUDO="sudo"
+
+# Fix ownership of bind-mounted host directories so dev can write them.
+# Uses HOST_UID/HOST_GID from .host.env (written by initializeCommand on the
+# host) so the chown matches the real host user, not the container's dev user
+# whose GID may differ. Only touches root- or overflow-owned mounts in the
+# workspace or under HOME; leaves other owners alone.
+configure_mount_ownership() {
+    local uid="${HOST_UID:-$(id -u)}" gid="${HOST_GID:-$(id -g)}"
+    local overflow="$(cat /proc/sys/kernel/overflowuid 2>/dev/null || echo 65534)"
+    local mountinfo="${MOUNTINFO:-/proc/self/mountinfo}"
+    local workspace="${WORKSPACE_DIR:-/src}"
+
+    # The workspace is always mapped, so seed the candidate list with it; then
+    # discover writable directory bind mounts under HOME. mountinfo(5) fields:
+    # id parent maj:min root mountpoint options [optional...] - fstype src opts.
+    local candidates=("$workspace")
+    if [ -n "${HOME:-}" ] && [ -r "$mountinfo" ]; then
+        local mp opts rest fstype
+        while read -r _ _ _ _ mp opts rest; do
+            case "$mp" in "$HOME"/*) ;; *) continue ;; esac
+            fstype="${rest#*- }"; fstype="${fstype%% *}"
+            case "$fstype" in
+                proc|sysfs|cgroup|cgroup2|tmpfs|devtmpfs|devpts|mqueue|overlay|fuse*|shm) continue ;;
+            esac
+            case ",$opts," in *,ro,*) continue ;; esac  # can't/shouldn't chown a ro mount
+            case "$mp" in
+                "$HOME"/.vscode-server|"$HOME"/.vscode-server/*|\
+                "$HOME"/.vscode-server-insiders|"$HOME"/.vscode-server-insiders/*) continue ;;
+            esac
+            [ -d "$mp" ] || continue                     # skip single-file mounts
+            candidates+=("$mp")
+        done < "$mountinfo"
+    fi
+
+    # De-dupe, then drop any mount nested under another candidate (so, e.g.,
+    # ~/.config/gh collapses into a ~/.config mount) before touching anything.
+    local target parent skip owner
+    local seen=()
+    while IFS= read -r target; do
+        skip=false
+        for parent in "${seen[@]}"; do
+            case "$target/" in "$parent"/*) skip=true; break ;; esac
+        done
+        $skip && continue
+        seen+=("$target")
+
+        owner="$(stat -c %u "$target")"
+        if [ "$owner" = "$uid" ]; then
+            continue
+        elif [ "$owner" = "0" ] || [ "$owner" = "$overflow" ]; then
+            $SUDO chown -R "$uid:$gid" "$target"
+            echo "✓ Fixed ownership of $target to match the current user."
+        else
+            echo "⚠ $target is owned by uid $owner — leaving it as-is."
+        fi
+    done < <(printf '%s\n' "${candidates[@]}" | sort -u)
+}
+
 # Trust the credential proxy's CA
 configure_proxy_ca() {
-    local source="${PROXY_CA_SOURCE:-/proxy-ca/mitmproxy-ca-cert.pem}"
+    local source="${PROXY_CA_SOURCE:-/certificate/mitmproxy-ca-cert.pem}"
     local certificates="${CA_CERTIFICATES_DIR:-/usr/local/share/ca-certificates}"
 
     if [ ! -f "$source" ]; then
@@ -22,8 +82,8 @@ configure_proxy_ca() {
         return
     fi
 
-    cp "$source" "$certificates/mitmproxy.crt"
-    update-ca-certificates >/dev/null 2>&1
+    $SUDO cp "$source" "$certificates/mitmproxy.crt"
+    $SUDO update-ca-certificates >/dev/null 2>&1
     echo "✓ Trusted credential proxy certificate authority from $source."
 }
 
@@ -91,7 +151,7 @@ configure_apparmor_exception() {
         return
     fi
 
-    tee /etc/apparmor.d/bwrap > /dev/null <<EOF
+    $SUDO tee /etc/apparmor.d/bwrap > /dev/null <<EOF
 abi <abi/4.0>,
 include <tunables/global>
 
@@ -102,12 +162,12 @@ profile bwrap $bwrap_path flags=(unconfined) {
 EOF
 
     if command -v systemctl >/dev/null 2>&1 && systemctl is-system-running >/dev/null 2>&1; then
-        if systemctl reload apparmor 2>/dev/null; then
+        if $SUDO systemctl reload apparmor 2>/dev/null; then
             echo "✓ Installed and reloaded AppArmor userns exception for bubblewrap."
         else
             echo "⚠ Could not reload AppArmor via systemctl — bubblewrap sandbox may not work until the container restarts."
         fi
-    elif apparmor_parser -r /etc/apparmor.d/bwrap 2>/dev/null; then
+    elif $SUDO apparmor_parser -r /etc/apparmor.d/bwrap 2>/dev/null; then
         echo "✓ Installed and reloaded (via apparmor_parser) AppArmor userns exception for bubblewrap."
     else
         echo "⚠ Could not load AppArmor profile for bubblewrap — sandboxed tools (Claude Code, Codex) may fail to create user namespaces."
@@ -141,6 +201,7 @@ configure_claude() {
     echo "✓ Claude Code onboarding defaults set in $claude_json."
 }
 
+configure_mount_ownership
 configure_proxy_ca
 configure_identity
 configure_pager

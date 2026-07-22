@@ -5,6 +5,10 @@ set -euo pipefail
 # Version defaults below are the source of truth — Renovate updates them here.
 # Containerfile ARGs can override via env vars if a specific container needs to pin differently.
 
+# Every consuming Containerfile is expected to create the 'dev' user before calling this script.
+# Fail fast rather than silently skip the dev-specific setup below if that contract is broken.
+id dev >/dev/null 2>&1 || { echo "install-devtools.sh requires a 'dev' user to already exist" >&2; exit 1; }
+
 # copier releases: https://pypi.org/project/copier/
 # renovate: datasource=pypi depName=copier
 COPIER_VERSION="${COPIER_VERSION:-9.16.0}"
@@ -27,11 +31,17 @@ YQ_VERSION="${YQ_VERSION:-4.53.3}"
 
 # Developer experience tools
 apt-get update && apt-get install -y \
-    bubblewrap openssh-client socat \
+    bubblewrap openssh-client socat sudo \
     curl bat bats fd-find fzf jq ripgrep tree wget \
     gh git git-delta \
     hunspell hunspell-en-us \
     tmux zsh
+
+# Grant dev passwordless sudo. post-create needs root for proxy CA trust and
+# the AppArmor userns exception, both of which depend on runtime state that
+# only exists once the container has started.
+echo "dev ALL=(root) NOPASSWD:ALL" > /etc/sudoers.d/dev
+chmod 0440 /etc/sudoers.d/dev
 
 # Make bat (installed as batcat) available as bat
 # See: https://github.com/sharkdp/bat
@@ -62,10 +72,13 @@ rm /tmp/codex.tar.gz
 sh -c "$(wget https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh -O -)" --unattended
 
 # Set zsh as the default shell for the main (root) user
-# Note that downstream containers use docker-in-docker which requires running as root
-# So all devcontainers run as root by design
-# These containers are used for development and are not the same containers that run apps in production
+# Note that some downstream containers use docker-in-docker, which needs dockerd
+# running as root, so root keeps a full setup too even where dev is the default
 chsh -s /bin/zsh root
+
+# Same for dev — the account every containers.base image now runs as by default
+su - dev -c 'sh -c "$(wget https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh -O -)" --unattended'
+chsh -s /bin/zsh dev
 
 # Install uv (fast Python package installer)
 # See: https://github.com/astral-sh/uv

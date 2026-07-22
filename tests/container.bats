@@ -152,7 +152,7 @@ setup() {
 
 # Shell environment
 
-@test "zsh is the default shell" {
+@test "zsh is the default shell for root" {
     run getent passwd root
     [ "$status" -eq 0 ]
     [[ "$output" == */bin/zsh ]]
@@ -160,4 +160,19 @@ setup() {
 
 @test "oh-my-zsh is installed" {
     [ -d "$HOME/.oh-my-zsh" ]
+}
+
+@test "zsh is the default shell for dev" {
+    run getent passwd dev
+    [ "$status" -eq 0 ]
+    [[ "$output" == */bin/zsh ]]
+}
+
+@test "oh-my-zsh is installed for dev" {
+    [ -d "/home/dev/.oh-my-zsh" ]
+}
+
+@test "dev has passwordless sudo" {
+    run sudo -n true
+    [ "$status" -eq 0 ]
 }
