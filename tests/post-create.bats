@@ -10,11 +10,6 @@ setup() {
     export GIT_CONFIG_GLOBAL="$(mktemp)"
     export GIT_CONFIG_SYSTEM=/dev/null
     unset GITHUB_TOKEN
-    # HOST_UID/HOST_GID come from .devcontainer/.host.env (written by the host
-    # running `devcontainer up`) and land in this shell's real environment via
-    # compose's env_file — unset them so tests relying on the id(1) mock's
-    # fallback aren't at the mercy of whatever host happens to run the suite.
-    unset HOST_UID HOST_GID
     CAPTURE_DIR=$(mktemp -d)
     # Isolate ~/.claude.json writes from the real home directory.
     export HOME="$(mktemp -d)"
@@ -28,21 +23,13 @@ setup() {
 exit 0
 EOF
     chmod +x "$BIN/update-ca-certificates"
-    # Never let configure_mount_ownership fall through to the real /src —
-    # without this, every test here (not just the ones for that function)
-    # would run a real recursive chown against this actual checkout.
-    export WORKSPACE_DIR="$(mktemp -d)"
-    # Feed mount discovery an empty fixture by default so it never reads the
-    # real kernel mount table; ownership tests populate it via add_mount.
-    export MOUNTINFO="$CAPTURE_DIR/mountinfo"
-    : > "$MOUNTINFO"
     # Pin $SUDO's detection to "already root" so it stays out of the way of
     # the mocks above regardless of which real user runs bats.
     mock_id 0
 }
 
 teardown() {
-    rm -rf "$BIN" "$GIT_CONFIG_GLOBAL" "$CAPTURE_DIR" "$HOME" "$CA_CERTIFICATES_DIR" "$WORKSPACE_DIR"
+    rm -rf "$BIN" "$GIT_CONFIG_GLOBAL" "$CAPTURE_DIR" "$HOME" "$CA_CERTIFICATES_DIR"
 }
 
 # Put a fake gh on PATH.
@@ -136,173 +123,9 @@ EOF
     chmod +x "$BIN/sudo"
 }
 
-# Put a fake chown on PATH that records its arguments instead of touching
-# real ownership (the test sandbox may not have permission to chown to an
-# arbitrary UID). Appends, so tests that normalize several mounts can assert
-# on each chown independently. Cross-test isolation is unaffected: CAPTURE_DIR
-# is a fresh mktemp per setup() and removed in teardown(), so chown-args never
-# survives from one test into the next.
-mock_chown() {
-    cat > "$BIN/chown" <<EOF
-#!/usr/bin/env bash
-echo "\$*" >> "$CAPTURE_DIR/chown-args"
-exit 0
-EOF
-    chmod +x "$BIN/chown"
-}
-
-# Append a mountinfo(5) line for MOUNTPOINT to the MOUNTINFO fixture. The
-# defaults describe a writable host bind mount (the case we care about); pass
-# FSTYPE/OPTIONS to exercise the filters. Includes an optional field (shared:1)
-# so the parser's handling of the variable pre-"-" section is covered.
-# Usage: add_mount MOUNTPOINT [FSTYPE] [OPTIONS]
-add_mount() {
-    local mp="$1" fstype="${2:-ext4}" opts="${3:-rw,relatime}"
-    printf '36 35 8:3 /host%s %s %s shared:1 - %s /dev/sda3 rw\n' \
-        "$mp" "$mp" "$opts" "$fstype" >> "$MOUNTINFO"
-}
-
-# Put a fake stat on PATH reporting the given UID for "-c %u" queries — makes
-# configure_mount_ownership's owner check deterministic regardless of real user.
-# Usage: mock_stat_owner UID
-mock_stat_owner() {
-    local uid="$1"
-    cat > "$BIN/stat" <<EOF
-#!/usr/bin/env bash
-[[ "\$1 \$2" == "-c %u" ]] && { echo "$uid"; exit 0; }
-exit 1
-EOF
-    chmod +x "$BIN/stat"
-}
-
 get_name() { git config --global --get user.name; }
 get_email() { git config --global --get user.email; }
 get_pager() { git config --global --get core.pager; }
-
-# configure_mount_ownership
-
-@test "leaves workspace ownership alone when it already matches the current user" {
-    mock_id 1000
-    mock_stat_owner 1000
-    export WORKSPACE_DIR="$(mktemp -d)"
-    mock_gh 0 '{"login":"octocat","name":"The Octocat","id":583231}'
-    run "$SCRIPT"
-    [ "$status" -eq 0 ]
-    [[ "$output" != *"Fixed ownership"* ]]
-}
-
-@test "chowns the workspace via sudo when it's root-owned and the current user isn't root" {
-    mock_id 1000
-    mock_stat_owner 0
-    mock_sudo
-    mock_chown
-    export WORKSPACE_DIR="$(mktemp -d)"
-    mock_gh 0 '{"login":"octocat","name":"The Octocat","id":583231}'
-    run "$SCRIPT"
-    [ "$status" -eq 0 ]
-    [[ "$(cat "$CAPTURE_DIR/chown-args")" == *"1000:1000 $WORKSPACE_DIR"* ]]
-    [[ "$output" == *"Fixed ownership"* ]]
-}
-
-@test "uses HOST_UID and HOST_GID for chown when they differ from the container user" {
-    mock_id 1000
-    mock_stat_owner 0
-    mock_sudo
-    mock_chown
-    export HOST_UID=1000
-    export HOST_GID=100
-    export WORKSPACE_DIR="$(mktemp -d)"
-    mock_gh 0 '{"login":"octocat","name":"The Octocat","id":583231}'
-    run "$SCRIPT"
-    [ "$status" -eq 0 ]
-    [[ "$(cat "$CAPTURE_DIR/chown-args")" == *"1000:100 $WORKSPACE_DIR"* ]]
-}
-
-@test "warns but leaves ownership alone when owned by a different non-root user" {
-    mock_id 1000
-    mock_stat_owner 2000
-    mock_sudo
-    mock_chown
-    export WORKSPACE_DIR="$(mktemp -d)"
-    mock_gh 0 '{"login":"octocat","name":"The Octocat","id":583231}'
-    run "$SCRIPT"
-    [ "$status" -eq 0 ]
-    [ ! -f "$CAPTURE_DIR/chown-args" ]
-    [[ "$output" == *"owned by uid 2000"* ]]
-}
-
-@test "discovers and chowns an overflow-owned bind mount under HOME" {
-    mock_id 1000
-    mock_stat_owner 65534   # overflow uid — a host inode outside our userns map
-    mock_sudo
-    mock_chown
-    mkdir -p "$HOME/.codex"
-    add_mount "$HOME/.codex"
-    mock_gh 0 '{"login":"octocat","name":"The Octocat","id":583231}'
-    run "$SCRIPT"
-    [ "$status" -eq 0 ]
-    [[ "$(cat "$CAPTURE_DIR/chown-args")" == *"1000:1000 $HOME/.codex"* ]]
-    [[ "$output" == *"Fixed ownership of $HOME/.codex"* ]]
-}
-
-@test "skips VS Code's own server mount even when it needs fixing" {
-    mock_id 1000
-    mock_stat_owner 65534
-    mock_sudo
-    mock_chown
-    mkdir -p "$HOME/.vscode-server" "$HOME/.codex"
-    add_mount "$HOME/.vscode-server"
-    add_mount "$HOME/.codex"
-    mock_gh 0 '{"login":"octocat","name":"The Octocat","id":583231}'
-    run "$SCRIPT"
-    [ "$status" -eq 0 ]
-    [[ "$(cat "$CAPTURE_DIR/chown-args")" == *"$HOME/.codex"* ]]
-    [[ "$(cat "$CAPTURE_DIR/chown-args")" != *".vscode-server"* ]]
-}
-
-@test "ignores mounts that are neither the workspace nor under HOME" {
-    mock_id 1000
-    mock_stat_owner 65534
-    mock_sudo
-    mock_chown
-    add_mount "/vscode"        # a named volume, not under HOME
-    mock_gh 0 '{"login":"octocat","name":"The Octocat","id":583231}'
-    run "$SCRIPT"
-    [ "$status" -eq 0 ]
-    [[ "$(cat "$CAPTURE_DIR/chown-args")" != *"/vscode"* ]]
-}
-
-@test "skips read-only and virtual-filesystem mounts under HOME" {
-    mock_id 1000
-    mock_stat_owner 65534
-    mock_sudo
-    mock_chown
-    mkdir -p "$HOME/ro-mount" "$HOME/tmpfs-mount"
-    add_mount "$HOME/ro-mount" ext4 ro,relatime
-    add_mount "$HOME/tmpfs-mount" tmpfs rw,relatime
-    mock_gh 0 '{"login":"octocat","name":"The Octocat","id":583231}'
-    run "$SCRIPT"
-    [ "$status" -eq 0 ]
-    [[ "$(cat "$CAPTURE_DIR/chown-args")" != *"ro-mount"* ]]
-    [[ "$(cat "$CAPTURE_DIR/chown-args")" != *"tmpfs-mount"* ]]
-}
-
-@test "collapses a nested mount into its parent so it is chowned only once" {
-    mock_id 1000
-    mock_stat_owner 65534
-    mock_sudo
-    mock_chown
-    mkdir -p "$HOME/.config/gh"
-    add_mount "$HOME/.config"
-    add_mount "$HOME/.config/gh"
-    mock_gh 0 '{"login":"octocat","name":"The Octocat","id":583231}'
-    run "$SCRIPT"
-    [ "$status" -eq 0 ]
-    # The recursive chown of the parent covers the child, so the child must not
-    # appear as its own chown.
-    [[ "$(cat "$CAPTURE_DIR/chown-args")" == *"$HOME/.config"* ]]
-    [[ "$(cat "$CAPTURE_DIR/chown-args")" != *"$HOME/.config/gh"* ]]
-}
 
 # configure_proxy_ca
 

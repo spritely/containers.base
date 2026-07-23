@@ -6,6 +6,11 @@ services:
       context: ../src
       dockerfile: Containerfile
     command: /bin/sh -c "sleep infinity"
+    # When running Podman, in order for bind mounts to be editable both inside and outside the
+    # devcontainer, it must either run as `root` or the user id must be translated into the
+    # container properly. Setting userns_mode to "keep-id" tells podman to not shift user ids and
+    # fixes this problem so set environment variable USERNS_MODE=keep-id only if running podman.
+    userns_mode: "${USERNS_MODE:-}"
     # Don't start until the proxy is listening (and has generated its CA).
     depends_on:
       credentials-proxy:
@@ -31,8 +36,6 @@ services:
       - credentials-proxy-certificate:/certificate:ro
     env_file:
       - path: .env
-        required: false
-      - path: .host.env
         required: false
 
   # Holds the real credentials and injects them into outbound requests

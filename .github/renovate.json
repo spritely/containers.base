@@ -8,10 +8,10 @@
   "rebaseWhen": "behind-base-branch",
   "packageRules": [
     {
-      "description": "Do not automerge spritely/actions.semantic-version or spritely/actions.publish-container (circular dependency: they use our devcontainer image)",
-      "matchPackageNames": ["spritely/actions.semantic-version", "spritely/actions.publish-container"],
+      "description": "Do not automerge spritely/actions.semantic-version, spritely/actions.publish-container, or spritelydev/credentials-proxy (circular dependencies: each of these uses a container this repo produces, so it's fine to lag behind on them)",
+      "matchPackageNames": ["spritely/actions.semantic-version", "spritely/actions.publish-container", "spritelydev/credentials-proxy"],
       "automerge": false,
-      "groupName": "spritely actions"
+      "groupName": "spritely infrastructure"
     },
     {
       "description": "Keep the python base image and PYTHON_VERSION in lockstep",
