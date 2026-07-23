@@ -5,7 +5,6 @@ services:
     build:
       context: ../src
       dockerfile: Containerfile
-    command: /bin/sh -c "sleep infinity"
     # When running Podman, in order for bind mounts to be editable both inside and outside the
     # devcontainer, it must either run as `root` or the user id must be translated into the
     # container properly. Setting userns_mode to "keep-id" tells podman to not shift user ids and

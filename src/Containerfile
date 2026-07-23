@@ -14,3 +14,5 @@ RUN /tmp/install-devtools.sh
 COPY apply-templates merge-xml post-create /usr/local/bin/
 
 USER dev
+
+CMD ["sleep", "infinity"]
