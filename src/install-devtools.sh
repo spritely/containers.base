@@ -23,7 +23,7 @@ PYTHON_VERSION="${PYTHON_VERSION:-3.14.6}"
 
 # uv releases: https://github.com/astral-sh/uv/releases
 # renovate: datasource=github-releases depName=astral-sh/uv extractVersion=^(?<version>.*)$
-UV_VERSION="${UV_VERSION:-0.11.28}"
+UV_VERSION="${UV_VERSION:-0.11.32}"
 
 # yq releases: https://github.com/mikefarah/yq/releases
 # renovate: datasource=github-releases depName=mikefarah/yq extractVersion=^v(?<version>.*)$
