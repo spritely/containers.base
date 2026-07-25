@@ -11,7 +11,7 @@ id dev >/dev/null 2>&1 || { echo "install-devtools.sh requires a 'dev' user to a
 
 # copier releases: https://pypi.org/project/copier/
 # renovate: datasource=pypi depName=copier
-COPIER_VERSION="${COPIER_VERSION:-9.16.0}"
+COPIER_VERSION="${COPIER_VERSION:-9.17.0}"
 
 # Codex releases: https://github.com/openai/codex/releases
 # renovate: datasource=github-releases depName=openai/codex extractVersion=^rust-v(?<version>.*)$
