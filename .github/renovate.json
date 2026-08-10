@@ -6,6 +6,11 @@
   "platformAutomerge": false,
   "prHourlyLimit": 0,
   "rebaseWhen": "behind-base-branch",
+  "minimumReleaseAge": "14 days",
+  "osvVulnerabilityAlerts": true,
+  "vulnerabilityAlerts": {
+    "enabled": true
+  },
   "packageRules": [
     {
       "description": "Do not automerge spritely/actions.semantic-version, spritely/actions.publish-container, or spritelydev/credentials-proxy (circular dependencies: each of these uses a container this repo produces, so it's fine to lag behind on them)",
