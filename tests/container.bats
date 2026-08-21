@@ -10,6 +10,9 @@ setup() {
     EXPECTED_CODEX_VERSION=$(extract_version CODEX_VERSION)
     EXPECTED_PYTHON_VERSION=$(extract_version PYTHON_VERSION)
     EXPECTED_UV_VERSION=$(extract_version UV_VERSION)
+    EXPECTED_NODE_VERSION=$(extract_version NODE_VERSION)
+    EXPECTED_PNPM_VERSION=$(extract_version PNPM_VERSION)
+    EXPECTED_RENOVATE_VERSION=$(extract_version RENOVATE_VERSION)
 }
 
 # Version checks for tools with pinned versions in Containerfile
@@ -42,6 +45,24 @@ setup() {
     run uv --version
     [ "$status" -eq 0 ]
     [[ "$output" == *"${EXPECTED_UV_VERSION}"* ]]
+}
+
+@test "node version matches Containerfile" {
+    run node --version
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"${EXPECTED_NODE_VERSION}"* ]]
+}
+
+@test "pnpm version matches Containerfile" {
+    run pnpm --version
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"${EXPECTED_PNPM_VERSION}"* ]]
+}
+
+@test "renovate version matches Containerfile" {
+    run renovate --version
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"${EXPECTED_RENOVATE_VERSION}"* ]]
 }
 
 # Core tools required by apply-templates
