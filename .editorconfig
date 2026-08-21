@@ -13,6 +13,7 @@ root = true
 end_of_line = lf
 insert_final_newline = true
 trim_trailing_whitespace = true
+max_line_length = 100
 
 # Tabs can be great, but spaces are much more commonly used
 indent_style = space
@@ -28,9 +29,8 @@ charset = utf-8
 # See: https://superuser.com/a/1553672
 charset = utf-8-bom
 
-# From: https://learn.microsoft.com/en-us/dotnet/fundamentals/code-analysis/code-style-rule-options
 # XML project files
-[*.{csproj,vbproj,vcxproj,vcxproj.filters,proj,projitems,shproj}]
+[*.{csproj,vbproj,vcxproj,vcxproj.filters,proj,projitems,shproj,slnx}]
 indent_size = 2
 
 # XML config files

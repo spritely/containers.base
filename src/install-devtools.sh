@@ -17,9 +17,21 @@ COPIER_VERSION="${COPIER_VERSION:-9.17.0}"
 # renovate: datasource=github-releases depName=openai/codex extractVersion=^rust-v(?<version>.*)$
 CODEX_VERSION="${CODEX_VERSION:-0.146.0}"
 
+# Node.js releases: https://nodejs.org/en/about/previous-releases
+# renovate: datasource=node-version depName=node
+NODE_VERSION="${NODE_VERSION:-24.19.0}"
+
+# pnpm releases: https://github.com/pnpm/pnpm/releases
+# renovate: datasource=npm depName=pnpm
+PNPM_VERSION="${PNPM_VERSION:-11.22.0}"
+
 # Python (used by copier; also the interpreter uv provisions on non-Python images)
 # renovate: datasource=docker depName=python versioning=docker
 PYTHON_VERSION="${PYTHON_VERSION:-3.14.6}"
+
+# Renovate releases: https://github.com/renovatebot/renovate/releases
+# renovate: datasource=npm depName=renovate
+RENOVATE_VERSION="${RENOVATE_VERSION:-44.39.1}"
 
 # uv releases: https://github.com/astral-sh/uv/releases
 # renovate: datasource=github-releases depName=astral-sh/uv extractVersion=^(?<version>.*)$
@@ -93,6 +105,25 @@ fi
 # Install copier (template engine)
 UV_TOOL_DIR=/opt/uv-tools UV_TOOL_BIN_DIR=/usr/local/bin UV_PYTHON_INSTALL_DIR=/opt/python UV_PYTHON_DOWNLOADS=never uv tool install --python "${PYTHON_VERSION}" "copier==${COPIER_VERSION}"
 chmod -R a+rX /opt/uv-tools
+
+# Install Node.js. Use .tar.gz not .tar.xz — python:slim has no xz binary.
+curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.gz" -o /tmp/node.tar.gz
+mkdir -p /opt/node
+tar -xzf /tmp/node.tar.gz -C /opt/node --strip-components=1
+rm /tmp/node.tar.gz
+
+PATH="/opt/node/bin:${PATH}" npm install -g "pnpm@${PNPM_VERSION}"
+
+for bin in /opt/node/bin/*; do
+    ln -sf "$bin" "/usr/local/bin/$(basename "$bin")"
+done
+
+# Install Renovate
+npm install -g "renovate@${RENOVATE_VERSION}"
+ln -sf /opt/node/bin/renovate /usr/local/bin/renovate
+ln -sf /opt/node/bin/renovate-config-validator /usr/local/bin/renovate-config-validator
+
+chmod -R a+rX /opt/node
 
 # Clean up
 apt-get clean
