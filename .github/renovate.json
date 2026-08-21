@@ -13,6 +13,25 @@
   },
   "packageRules": [
     {
+      "matchPackageNames": [
+        "spritely/actions.publish-container",
+        "spritely/actions.publish-nuget",
+        "spritely/actions.semantic-version",
+        "spritely/actions.test-dotnet",
+        "spritely/build",
+        "spritely/deploy",
+        "docker.io/spritelydev/base-devcontainer",
+        "docker.io/spritelydev/core-devcontainer",
+        "docker.io/spritelydev/credentials-proxy",
+        "docker.io/spritelydev/dotnet10-devcontainer",
+        "docker.io/spritelydev/github-actions-runner",
+        "docker.io/spritelydev/node24-devcontainer",
+        "docker.io/spritelydev/pulumi-dotnet10"
+      ],
+      "groupName": "spritely infrastructure",
+      "minimumReleaseAge": "0 days"
+    },
+    {
       "description": "Do not automerge spritely/actions.semantic-version, spritely/actions.publish-container, or spritelydev/credentials-proxy (circular dependencies: each of these uses a container this repo produces, so it's fine to lag behind on them)",
       "matchPackageNames": ["spritely/actions.semantic-version", "spritely/actions.publish-container", "spritelydev/credentials-proxy"],
       "automerge": false,
