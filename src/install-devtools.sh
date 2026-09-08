@@ -31,7 +31,7 @@ PYTHON_VERSION="${PYTHON_VERSION:-3.14.6}"
 
 # Renovate releases: https://github.com/renovatebot/renovate/releases
 # renovate: datasource=npm depName=renovate
-RENOVATE_VERSION="${RENOVATE_VERSION:-44.39.1}"
+RENOVATE_VERSION="${RENOVATE_VERSION:-44.65.5}"
 
 # uv releases: https://github.com/astral-sh/uv/releases
 # renovate: datasource=github-releases depName=astral-sh/uv extractVersion=^(?<version>.*)$
