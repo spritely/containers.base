@@ -23,7 +23,7 @@ NODE_VERSION="${NODE_VERSION:-24.19.0}"
 
 # pnpm releases: https://github.com/pnpm/pnpm/releases
 # renovate: datasource=npm depName=pnpm
-PNPM_VERSION="${PNPM_VERSION:-11.22.0}"
+PNPM_VERSION="${PNPM_VERSION:-11.25.0}"
 
 # Python (used by copier; also the interpreter uv provisions on non-Python images)
 # renovate: datasource=docker depName=python versioning=docker
