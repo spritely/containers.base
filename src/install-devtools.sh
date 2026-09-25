@@ -15,7 +15,7 @@ COPIER_VERSION="${COPIER_VERSION:-9.18.2}"
 
 # Codex releases: https://github.com/openai/codex/releases
 # renovate: datasource=github-releases depName=openai/codex extractVersion=^rust-v(?<version>.*)$
-CODEX_VERSION="${CODEX_VERSION:-0.153.4}"
+CODEX_VERSION="${CODEX_VERSION:-0.154.0}"
 
 # Node.js releases: https://nodejs.org/en/about/previous-releases
 # renovate: datasource=node-version depName=node
