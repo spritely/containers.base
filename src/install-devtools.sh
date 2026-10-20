@@ -35,7 +35,7 @@ RENOVATE_VERSION="${RENOVATE_VERSION:-44.149.0}"
 
 # uv releases: https://github.com/astral-sh/uv/releases
 # renovate: datasource=github-releases depName=astral-sh/uv extractVersion=^(?<version>.*)$
-UV_VERSION="${UV_VERSION:-0.12.19}"
+UV_VERSION="${UV_VERSION:-0.12.23}"
 
 # yq releases: https://github.com/mikefarah/yq/releases
 # renovate: datasource=github-releases depName=mikefarah/yq extractVersion=^v(?<version>.*)$
