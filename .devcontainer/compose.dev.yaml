@@ -25,7 +25,7 @@ services:
 
   # Holds the real credentials and injects them into outbound requests
   credentials-proxy:
-    image: docker.io/spritelydev/credentials-proxy:0.3.24@sha256:07ca3c3d784661c9c2fdf00d6c452968d80ef309f68913ef3a2baa4a7b213f66
+    image: docker.io/spritelydev/credentials-proxy:0.3.27@sha256:8ea4ae7e0204de1ec7db50570fe975a37480e2c31bc4630b67bd920abb3fcd13
     environment:
       # host -> secret names the client is allowed to request for that host.
       # injector.py derives its --allow-hosts intercept list from these hosts too.
