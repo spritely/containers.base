@@ -19,7 +19,7 @@ CODEX_VERSION="${CODEX_VERSION:-0.166.0}"
 
 # Node.js releases: https://nodejs.org/en/about/previous-releases
 # renovate: datasource=node-version depName=node
-NODE_VERSION="${NODE_VERSION:-24.22.2}"
+NODE_VERSION="${NODE_VERSION:-26.13.0}"
 
 # pnpm releases: https://github.com/pnpm/pnpm/releases
 # renovate: datasource=npm depName=pnpm
