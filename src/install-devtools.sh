@@ -39,7 +39,7 @@ UV_VERSION="${UV_VERSION:-0.13.8}"
 
 # yq releases: https://github.com/mikefarah/yq/releases
 # renovate: datasource=github-releases depName=mikefarah/yq extractVersion=^v(?<version>.*)$
-YQ_VERSION="${YQ_VERSION:-4.54.1}"
+YQ_VERSION="${YQ_VERSION:-4.54.3}"
 
 # Developer experience tools
 apt-get update && apt-get install -y \
